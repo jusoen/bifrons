@@ -1,6 +1,9 @@
 #include "ui/paneltoolbar.h"
 
 #include <QComboBox>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -11,6 +14,7 @@
 #include <QToolButton>
 
 #include "core/localfilesource.h"
+#include "ui/fileicons.h"
 #include "ui/filepanel.h"
 
 namespace bifrons {
@@ -127,6 +131,11 @@ PanelToolbar::PanelToolbar(QWidget *parent)
         }
     });
 #endif
+    // User buttons sit on the left, so adding one never shifts the built-in buttons on the right.
+    m_userRow = new QHBoxLayout;
+    m_userRow->setContentsMargins(0, 0, 0, 0);
+    m_userRow->setSpacing(row->spacing());
+    row->addLayout(m_userRow);
     row->addStretch(1);
     m_back = makeButton(this, themeIcon(QIcon::ThemeIcon::GoPrevious, QStyle::SP_ArrowBack, this),
                         tr("Back (Alt+Left)"));
@@ -142,6 +151,13 @@ PanelToolbar::PanelToolbar(QWidget *parent)
     row->addSpacing(6);
     row->addWidget(m_home);
     row->addWidget(m_terminal);
+    connect(&FileIcons::instance(), &FileIcons::iconReady, this, [this](const QString &path) {
+        for (int i = 0; i < m_userTools.size(); ++i) {
+            if (iconSource(m_userTools.at(i)).compare(path, Qt::CaseInsensitive) == 0) {
+                applyUserToolIcon(i);
+            }
+        }
+    });
 
     connect(m_back, &QToolButton::clicked, this, [this] {
         if (m_panel != nullptr) {
@@ -186,6 +202,86 @@ void PanelToolbar::setPanel(FilePanel *panel)
     refresh();
 }
 
+QString PanelToolbar::iconSource(const UserTool &tool)
+{
+    if (!tool.icon.isEmpty()) {
+        return tool.icon;
+    }
+    if (!tool.program.contains(QLatin1Char('/')) && !tool.program.contains(QLatin1Char('\\'))) {
+        const QString onPath = QStandardPaths::findExecutable(tool.program);
+        if (!onPath.isEmpty()) {
+            return QDir::fromNativeSeparators(onPath);
+        }
+    }
+    return tool.program;
+}
+
+void PanelToolbar::applyUserToolIcon(int index)
+{
+    if (index < 0 || index >= m_userButtons.size()) {
+        return;
+    }
+    const QString source = iconSource(m_userTools.at(index));
+    QIcon icon;
+    const QString suffix = QFileInfo(source).suffix().toLower();
+    if (!m_userTools.at(index).icon.isEmpty() && suffix != QLatin1String("exe")) {
+        icon = QIcon(source);
+    }
+    if (icon.isNull()) {
+        // The shell icon: a program's own icon arrives later through FileIcons::iconReady.
+        FileItem item;
+        item.name = QFileInfo(source).fileName();
+        icon = FileIcons::instance().icon(item, source);
+    }
+    QToolButton *button = m_userButtons.at(index);
+    button->setIcon(withFadedDisabled(icon, button->iconSize(), devicePixelRatioF()));
+}
+
+void PanelToolbar::setUserTools(const UserToolList &tools)
+{
+    qDeleteAll(m_userButtons);
+    m_userButtons.clear();
+    m_userTools = tools;
+    for (int i = 0; i < tools.size(); ++i) {
+        const UserTool &tool = tools.at(i);
+        QToolButton *button = makeButton(this, QIcon(), tool.name.isEmpty() ? tool.program : tool.name);
+        m_userRow->addWidget(button);
+        m_userButtons.append(button);
+        connect(button, &QToolButton::clicked, this, [this, i] { emit userToolClicked(i); });
+        applyUserToolIcon(i);
+    }
+    // A small gap separates user buttons from the drive selector.
+    m_userRow->setContentsMargins(tools.isEmpty() ? 0 : 6, 0, 0, 0);
+    refresh();
+}
+
+void PanelToolbar::contextMenuEvent(QContextMenuEvent *event)
+{
+    int index = -1;
+    for (int i = 0; i < m_userButtons.size(); ++i) {
+        if (m_userButtons.at(i)->geometry().contains(event->pos())) {
+            index = i;
+            break;
+        }
+    }
+    QMenu menu(this);
+    if (index >= 0) {
+        connect(menu.addAction(tr("&Edit Button")), &QAction::triggered, this,
+                [this, index] { emit userToolEditRequested(index); });
+        QAction *left = menu.addAction(tr("Move &Left"));
+        left->setEnabled(index > 0);
+        connect(left, &QAction::triggered, this, [this, index] { emit userToolMoveRequested(index, index - 1); });
+        QAction *right = menu.addAction(tr("Move &Right"));
+        right->setEnabled(index + 1 < m_userButtons.size());
+        connect(right, &QAction::triggered, this, [this, index] { emit userToolMoveRequested(index, index + 1); });
+        connect(menu.addAction(tr("Re&move Button")), &QAction::triggered, this,
+                [this, index] { emit userToolRemoveRequested(index); });
+        menu.addSeparator();
+    }
+    connect(menu.addAction(tr("&Add Button")), &QAction::triggered, this, [this] { emit userToolEditRequested(-1); });
+    menu.exec(event->globalPos());
+}
+
 void PanelToolbar::refresh()
 {
     const bool has = m_panel != nullptr;
@@ -194,6 +290,10 @@ void PanelToolbar::refresh()
     m_up->setEnabled(has && m_panel->canGoUp());
     m_home->setEnabled(has);
     m_terminal->setEnabled(has && m_panel->canOpenTerminal());
+    // A tool starts in the panel's folder, so it waits for the same reachable folder as the terminal.
+    for (QToolButton *button : std::as_const(m_userButtons)) {
+        button->setEnabled(has && m_panel->canOpenTerminal());
+    }
     if (m_drives == nullptr) {
         return;
     }

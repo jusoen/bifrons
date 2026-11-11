@@ -11,6 +11,7 @@
 #include "core/fileoperation.h"
 #include "core/localfileoperation.h"
 #include "core/renameengine.h"
+#include "core/usertools.h"
 
 class QMenu;
 class QSplitter;
@@ -24,6 +25,7 @@ class FindDialog;
 class LocalFileSource;
 class OperationQueue;
 class PanelTabs;
+class PanelToolbar;
 class ViewerWidget;
 
 // Top-level window with two side-by-side panels.
@@ -69,6 +71,10 @@ private:
     void onOperationFinished(const FileOperation::Result &result);
     bool operationsBusy() const;
     void showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem);
+    // User toolbar buttons, shared by both sides. side is the toolbar the button was pressed on.
+    void runUserTool(int index, PanelTabs *side);
+    void editUserTool(int index);
+    void setUserTools(const UserToolList &tools);
 
     void loadSettings();
     void saveSettings() const;
@@ -92,6 +98,8 @@ private:
     bool m_closePending = false;
     // Each side's operation queue, shown as a progress strip under its tabs.
     QHash<PanelTabs *, OperationQueue *> m_queues;
+    QHash<PanelTabs *, PanelToolbar *> m_toolbars;
+    UserToolList m_userTools;
     bool m_showHidden = false;
     bool m_showFolderSizes = false;
 };

@@ -31,6 +31,8 @@ add_library(bifrons_core STATIC
     core/searchresultfilesource.cpp
     core/transfer.h
     core/transfer.cpp
+    core/usertools.h
+    core/usertools.cpp
 )
 target_include_directories(bifrons_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(bifrons_core PUBLIC Qt6::Core)
@@ -76,6 +78,8 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/pathbar.cpp
     ui/terminal.h
     ui/terminal.cpp
+    ui/usertooldialog.h
+    ui/usertooldialog.cpp
     ui/viewerwidget.h
     ui/viewerwidget.cpp
     ui/viewerwindow.h

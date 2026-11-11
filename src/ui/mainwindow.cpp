@@ -35,6 +35,8 @@
 #include "ui/paneltabs.h"
 #include "ui/paneltoolbar.h"
 #include "ui/shellmenu.h"
+#include "ui/terminal.h"
+#include "ui/usertooldialog.h"
 #include "ui/viewerwidget.h"
 #include "ui/viewerwindow.h"
 
@@ -337,6 +339,23 @@ QWidget *MainWindow::wrapWithToolbar(PanelTabs *side)
 {
     auto *container = new QWidget(this);
     auto *toolbar = new PanelToolbar(container);
+    m_toolbars.insert(side, toolbar);
+    connect(toolbar, &PanelToolbar::userToolClicked, this, [this, side](int index) { runUserTool(index, side); });
+    connect(toolbar, &PanelToolbar::userToolEditRequested, this, &MainWindow::editUserTool);
+    connect(toolbar, &PanelToolbar::userToolRemoveRequested, this, [this](int index) {
+        if (index >= 0 && index < m_userTools.size()) {
+            UserToolList tools = m_userTools;
+            tools.removeAt(index);
+            setUserTools(tools);
+        }
+    });
+    connect(toolbar, &PanelToolbar::userToolMoveRequested, this, [this](int from, int to) {
+        if (from >= 0 && to >= 0 && from < m_userTools.size() && to < m_userTools.size()) {
+            UserToolList tools = m_userTools;
+            tools.move(from, to);
+            setUserTools(tools);
+        }
+    });
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(2);
@@ -564,6 +583,52 @@ void MainWindow::runOperation(FileOperation *op, const QString &title)
     queue->enqueue(op, title);
 }
 
+void MainWindow::setUserTools(const UserToolList &tools)
+{
+    m_userTools = tools;
+    for (PanelToolbar *toolbar : std::as_const(m_toolbars)) {
+        toolbar->setUserTools(m_userTools);
+    }
+    // Saved straight away, so a crash does not lose a button that took effort to set up.
+    QSettings s = settingsStore();
+    saveUserTools(s, m_userTools);
+}
+
+void MainWindow::editUserTool(int index)
+{
+    const bool adding = index < 0 || index >= m_userTools.size();
+    UserToolDialog dialog(adding ? UserTool() : m_userTools.at(index), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    UserToolList tools = m_userTools;
+    if (adding) {
+        tools.append(dialog.tool());
+    } else {
+        tools[index] = dialog.tool();
+    }
+    setUserTools(tools);
+}
+
+void MainWindow::runUserTool(int index, PanelTabs *side)
+{
+    FilePanel *panel = side != nullptr ? side->currentPanel() : nullptr;
+    if (panel == nullptr || index < 0 || index >= m_userTools.size()) {
+        return;
+    }
+    const FilePanel *other = (side == m_left ? m_right : m_left)->currentPanel();
+    ToolContext context;
+    context.currentDir = panel->persistentPath();
+    context.currentPath = panel->currentPath();
+    context.selectedPaths = panel->selectedPaths();
+    context.targetDir = other != nullptr ? other->persistentPath() : QString();
+    const UserTool &tool = m_userTools.at(index);
+    QString error;
+    if (!launchProgram(tool.program, expandToolArguments(tool.arguments, context), context.currentDir, &error)) {
+        QMessageBox::warning(this, tool.name.isEmpty() ? tr("Toolbar Button") : tool.name, error);
+    }
+}
+
 void MainWindow::showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem)
 {
     if (panel == nullptr || anchor == nullptr) {
@@ -682,6 +747,10 @@ void MainWindow::loadSettings()
 
     setShowHidden(s.value(QStringLiteral("view/showHidden"), false).toBool());
     setShowFolderSizes(s.value(QStringLiteral("view/folderSizes"), false).toBool());
+    m_userTools = loadUserTools(s);
+    for (PanelToolbar *toolbar : std::as_const(m_toolbars)) {
+        toolbar->setUserTools(m_userTools);
+    }
     m_favourites = loadFavourites(s);
 
     for (PanelTabs *side : {m_left, m_right}) {
@@ -716,6 +785,7 @@ void MainWindow::saveSettings() const
     s.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
     s.setValue(QStringLiteral("view/showHidden"), m_showHidden);
     s.setValue(QStringLiteral("view/folderSizes"), m_showFolderSizes);
+    saveUserTools(s, m_userTools);
     s.setValue(QStringLiteral("activePanel"),
                activeSide() == m_right ? QStringLiteral("right") : QStringLiteral("left"));
 
