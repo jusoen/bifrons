@@ -9,6 +9,41 @@ class TestLocalFileSource : public QObject
     Q_OBJECT
 
 private slots:
+#if defined(Q_OS_WIN)
+    void uncPathsWalkUpToServer()
+    {
+        const LocalFileSource fs;
+        QCOMPARE(LocalFileSource::normalise(QStringLiteral("\\\\srv\\share\\dir\\")), QStringLiteral("//srv/share/dir"));
+        QVERIFY(LocalFileSource::isUncServer(QStringLiteral("//srv")));
+        QVERIFY(LocalFileSource::isUncServer(QStringLiteral("\\\\srv\\")));
+        QVERIFY(!LocalFileSource::isUncServer(QStringLiteral("//srv/share")));
+        QVERIFY(!LocalFileSource::isUncServer(QStringLiteral("C:/srv")));
+        QVERIFY(!LocalFileSource::isUncServer(QStringLiteral("//")));
+        QCOMPARE(fs.parentPath(QStringLiteral("//srv/share/dir")), QStringLiteral("//srv/share"));
+        QCOMPARE(fs.parentPath(QStringLiteral("//srv/share")), QStringLiteral("//srv"));
+        QVERIFY(fs.parentPath(QStringLiteral("//srv")).isEmpty());
+        QCOMPARE(fs.childPath(QStringLiteral("//srv"), QStringLiteral("share")), QStringLiteral("//srv/share"));
+    }
+
+    void listsServerShares()
+    {
+        const LocalFileSource fs;
+        const ListResult r = fs.list(QStringLiteral("//localhost"));
+        if (!r.ok) {
+            QSKIP("No shares visible on localhost");
+        }
+        for (const FileItem &item : r.items) {
+            QVERIFY(item.isDir);
+            QVERIFY(!item.name.isEmpty());
+            // IPC$ is not a disk share and must be filtered out.
+            QVERIFY(item.name.compare(QLatin1String("IPC$"), Qt::CaseInsensitive) != 0);
+            if (item.name.endsWith(QLatin1Char('$'))) {
+                QVERIFY(item.isHidden);
+            }
+        }
+    }
+#endif
+
     void listsEntries()
     {
         QTemporaryDir tmp;

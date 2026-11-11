@@ -4,7 +4,7 @@ namespace dcpp {
 
 QString appDisplayName()
 {
-    return QStringLiteral("DC++");
+    return QStringLiteral("Bifrons");
 }
 
 QString appOrganisation()

@@ -1,4 +1,4 @@
-# DC++
+# Bifrons
 
 A cross-platform, dual-pane file manager in C++ and Qt 6. It is a clean rewrite inspired by [Double Commander](https://github.com/doublecmd/doublecmd), whose behaviour (key bindings, `cm_*` command names, dialog flow) it follows. No code is shared with the Pascal original.
 

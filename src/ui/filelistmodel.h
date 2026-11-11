@@ -18,6 +18,8 @@ public:
     explicit FileListModel(QObject *parent = nullptr);
 
     void setItems(FileItemList items, bool showParent, bool keepMarks);
+    // An inactive panel draws its cursor row pale, so the ".." arrow stays dark there.
+    void setPanelActive(bool active);
     // Hiding drops marks on hidden entries.
     void setShowHidden(bool show);
     bool showHidden() const;
@@ -64,6 +66,11 @@ private:
     Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
     QIcon m_dirIcon;
     QIcon m_fileIcon;
+    // Up arrow for the ".." row, matching the toolbar's Parent folder button.
+    QIcon m_parentIcon;
+    // Same arrow, drawn dark even on the cursor row.
+    QIcon m_parentIconInactive;
+    bool m_panelActive = false;
 };
 
 } // namespace dcpp

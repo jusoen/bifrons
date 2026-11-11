@@ -1,6 +1,6 @@
 #include "ui/filepanel.h"
 
-#include <QComboBox>
+#include <QApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QHeaderView>
@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QStyle>
 #include <QStyleFactory>
@@ -21,6 +22,8 @@
 #include "core/localfilesource.h"
 #include "core/searchresultfilesource.h"
 #include "ui/filelistmodel.h"
+#include "ui/pathbar.h"
+#include "ui/terminal.h"
 
 namespace dcpp {
 
@@ -28,33 +31,8 @@ namespace {
 
 constexpr int RefreshDelayMs = 250;
 constexpr int MaxRedirects = 3;
-
-#if defined(Q_OS_WIN)
-// Re-reads the drive list each time it opens, so new USB drives show up.
-class DriveComboBox : public QComboBox
-{
-public:
-    using QComboBox::QComboBox;
-
-    void refresh()
-    {
-        const QString current = currentData().toString();
-        clear();
-        for (const QFileInfo &drive : QDir::drives()) {
-            const QString root = drive.absoluteFilePath();
-            addItem(QDir::toNativeSeparators(root).left(2), root);
-        }
-        const int i = findData(current);
-        setCurrentIndex(i);
-    }
-
-    void showPopup() override
-    {
-        refresh();
-        QComboBox::showPopup();
-    }
-};
-#endif
+constexpr int MaxHistory = 50;
+constexpr int ConnectingDelayMs = 300;
 
 } // namespace
 
@@ -91,40 +69,24 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
     m_view->installEventFilter(this);
     m_view->viewport()->installEventFilter(this);
 
-    m_pathEdit = new QLineEdit(this);
-    m_pathEdit->installEventFilter(this);
+    m_pathBar = new PathBar(this);
+    m_pathBar->lineEdit()->installEventFilter(this);
     m_status = new QLabel(this);
-
-    auto *top = new QHBoxLayout;
-    top->setContentsMargins(0, 0, 0, 0);
-#if defined(Q_OS_WIN)
-    auto *drives = new DriveComboBox(this);
-    drives->refresh();
-    m_drives = drives;
-    top->addWidget(m_drives);
-    connect(m_drives, &QComboBox::activated, this, [this](int index) {
-        const QString root = m_drives->itemData(index).toString();
-        if (!root.isEmpty()) {
-            setPath(root);
-            focusView();
-        }
-    });
-#endif
-    top->addWidget(m_pathEdit, 1);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(2);
-    layout->addLayout(top);
+    layout->addWidget(m_pathBar);
     layout->addWidget(m_view, 1);
     layout->addWidget(m_status);
 
     connect(&m_loader, &QFutureWatcher<ListResult>::finished, this, &FilePanel::onLoadFinished);
     connect(m_view, &QTableView::doubleClicked, this, [this] { openCurrent(); });
-    connect(m_pathEdit, &QLineEdit::returnPressed, this, [this] {
-        setPath(LocalFileSource::normalise(m_pathEdit->text()));
+    connect(m_pathBar, &PathBar::pathRequested, this, [this](const QString &path) {
+        setPath(LocalFileSource::normalise(path));
         focusView();
     });
+    connect(m_pathBar, &PathBar::editingCancelled, this, &FilePanel::focusView);
     connect(m_model, &FileListModel::marksChanged, this, &FilePanel::updateStatus);
     connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this, &FilePanel::currentItemChanged);
     connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
@@ -135,6 +97,21 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
         const QString target = m_selectAfterLoad.isEmpty() ? kept : m_selectAfterLoad;
         m_selectAfterLoad.clear();
         selectName(target);
+    });
+
+    m_message = new QLabel(m_view->viewport());
+    m_message->setAlignment(Qt::AlignCenter);
+    m_message->setWordWrap(true);
+    m_message->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_message->setStyleSheet(QStringLiteral("QLabel { color: palette(placeholder-text); }"));
+    m_message->hide();
+    auto *messageLayout = new QVBoxLayout(m_view->viewport());
+    messageLayout->addWidget(m_message);
+
+    m_connectingTimer.setSingleShot(true);
+    m_connectingTimer.setInterval(ConnectingDelayMs);
+    connect(&m_connectingTimer, &QTimer::timeout, this, [this] {
+        showMessage(tr("Connecting to network…\n%1").arg(m_local->displayPath(m_loadingPath)));
     });
 
     m_refreshTimer.setSingleShot(true);
@@ -198,10 +175,41 @@ void FilePanel::loadFrom(std::shared_ptr<const FileSource> source, const QString
 {
     m_loadingSource = source;
     m_loadingPath = path;
+    m_historyTarget = -1;
     m_selectAfterLoad = selectName;
     m_status->setText(tr("Loading…"));
+    m_networkPending = source == m_local && LocalFileSource::isNetworkPath(path);
+    if (m_networkPending) {
+        m_connectingTimer.start();
+    } else {
+        m_connectingTimer.stop();
+    }
+    emit navigationChanged();
     // setFuture detaches the previous load, so a slow earlier listing can never overwrite this one.
     m_loader.setFuture(QtConcurrent::run([source, path] { return source->list(path); }));
+}
+
+void FilePanel::restorePath(const QString &path)
+{
+    // The existence check for a network path can block for the SMB timeout, so the listing thread does it.
+    if (LocalFileSource::isNetworkPath(path)) {
+        // Show the folder in the tab and path bar at once. The listing confirms or fails it later.
+        const QString target = LocalFileSource::normalise(path);
+        m_path = target;
+        recordHistory(target);
+        updatePathBar();
+        emit pathChanged(target);
+        emit navigationChanged();
+        loadFrom(m_local, target, QString());
+    } else {
+        setPath(LocalFileSource::nearestExistingDir(path));
+    }
+}
+
+void FilePanel::showMessage(const QString &text)
+{
+    m_message->setText(text);
+    m_message->setVisible(!text.isEmpty());
 }
 
 void FilePanel::reload()
@@ -216,8 +224,21 @@ void FilePanel::onLoadFinished()
     const ListResult result = m_loader.result();
     const QString loaded = m_loadingPath;
     const bool local = m_loadingSource == m_local;
+    m_connectingTimer.stop();
+    m_networkPending = false;
 
     if (!result.ok) {
+        // Stay on an unreachable network folder so it is saved and Refresh can retry it.
+        // Checking it with QFileInfo here would block the UI for the SMB timeout.
+        if (local && LocalFileSource::isNetworkPath(loaded)) {
+            m_redirects = 0;
+            m_selectAfterLoad.clear();
+            m_unreachable = true;
+            enterLocation(loaded, FileItemList(), false);
+            showMessage(tr("Network connection failed\n%1\n\nPress Ctrl+R to retry.").arg(m_local->displayPath(loaded)));
+            showError(result.error);
+            return;
+        }
         // The current folder vanished: fall back to the closest folder that still exists.
         if (local && loaded == m_path && !QFileInfo(m_path).isDir() && m_redirects < MaxRedirects) {
             ++m_redirects;
@@ -230,37 +251,54 @@ void FilePanel::onLoadFinished()
             return;
         }
         m_selectAfterLoad.clear();
-        m_pathEdit->setText(m_source->displayPath(m_path));
+        m_historyTarget = -1;
+        updatePathBar();
         showError(result.error);
+        emit navigationChanged();
         return;
     }
 
     m_redirects = 0;
+    m_unreachable = false;
+    showMessage(QString());
+    enterLocation(loaded, result.items, true);
+}
+
+void FilePanel::enterLocation(const QString &loaded, const FileItemList &items, bool reachable)
+{
+    const bool local = m_loadingSource == m_local;
     const bool sameDir = loaded == m_path && m_loadingSource == m_source;
-    if (!sameDir) {
-        if (!m_fsWatcher.directories().isEmpty()) {
-            m_fsWatcher.removePaths(m_fsWatcher.directories());
-        }
-        if (local) {
-            // Without a watch the panel still works, it just needs a manual refresh.
-            (void)m_fsWatcher.addPath(loaded);
-        }
+    const QStringList watched = m_fsWatcher.directories();
+    const bool watching = watched.contains(loaded);
+    if (!watched.isEmpty() && (!reachable || !watching)) {
+        m_fsWatcher.removePaths(watched);
+    }
+    // Not watched when unreachable: adding the watch would wait on the network on this thread.
+    if (local && reachable && !watching) {
+        // Without a watch the panel still works, it just needs a manual refresh.
+        (void)m_fsWatcher.addPath(loaded);
     }
     m_source = m_loadingSource;
     if (local) {
         m_results.reset();
     }
     m_path = loaded;
-    m_pathEdit->setText(m_source->displayPath(m_path));
-    updateDriveCombo();
+    updatePathBar();
     if (!sameDir) {
+        if (m_historyTarget >= 0 && m_historyTarget < m_history.size()) {
+            m_historyIndex = m_historyTarget;
+        } else if (local) {
+            recordHistory(m_path);
+        }
+        m_historyTarget = -1;
         emit pathChanged(m_path);
     }
 
     const bool showParent = !m_source->parentPath(m_path).isEmpty();
     m_keepCursor = sameDir;
-    m_model->setItems(result.items, showParent, sameDir);
+    m_model->setItems(items, showParent, sameDir);
     m_keepCursor = true;
+    emit navigationChanged();
 }
 
 QStringList FilePanel::selectedPaths() const
@@ -289,9 +327,25 @@ QString FilePanel::currentName() const
 void FilePanel::setActive(bool active)
 {
     m_active = active;
-    m_pathEdit->setStyleSheet(active
-        ? QStringLiteral("QLineEdit { background: palette(highlight); color: palette(highlighted-text); }")
-        : QString());
+    m_pathBar->setActive(active);
+    m_model->setPanelActive(active);
+
+    // The inactive panel shows its cursor row as a faint grey band instead of the full highlight.
+    constexpr qreal InactiveCursorTint = 0.12;
+    QPalette palette = QApplication::palette(m_view);
+    if (!active) {
+        const QColor base = palette.color(QPalette::Base);
+        const QColor text = palette.color(QPalette::Text);
+        const QColor tint = QColor::fromRgbF(
+            base.redF() + (text.redF() - base.redF()) * InactiveCursorTint,
+            base.greenF() + (text.greenF() - base.greenF()) * InactiveCursorTint,
+            base.blueF() + (text.blueF() - base.blueF()) * InactiveCursorTint);
+        for (const QPalette::ColorGroup group : {QPalette::Active, QPalette::Inactive}) {
+            palette.setColor(group, QPalette::Highlight, tint);
+            palette.setColor(group, QPalette::HighlightedText, text);
+        }
+    }
+    m_view->setPalette(palette);
 }
 
 void FilePanel::focusView()
@@ -538,19 +592,98 @@ void FilePanel::updateStatus()
                                locale.formattedDataSize(m_model->totalSize())));
 }
 
-void FilePanel::updateDriveCombo()
+void FilePanel::updatePathBar()
 {
-    if (m_drives == nullptr) {
+    const QString display = m_source->displayPath(m_path);
+    QList<Crumb> crumbs;
+    if (m_source != m_local) {
+        crumbs.append(Crumb{display, QString()});
+        m_pathBar->setLocation(display, crumbs);
         return;
     }
-    for (int i = 0; i < m_drives->count(); ++i) {
-        const QString root = m_drives->itemData(i).toString();
-        if (m_path.startsWith(root, Qt::CaseInsensitive) || m_path + QLatin1Char('/') == root) {
-            m_drives->setCurrentIndex(i);
-            return;
+    // Bounded in case parentPath never reaches a root.
+    constexpr int MaxDepth = 256;
+    QString dir = m_path;
+    for (int depth = 0; depth < MaxDepth && !dir.isEmpty(); ++depth) {
+        // A server shows as "\\server", so the trail reads like the typed path.
+        QString label = LocalFileSource::isUncServer(dir) ? m_local->displayPath(dir) : QDir(dir).dirName();
+        if (label.isEmpty()) {
+            // A root: "C:\" shows as "C:" and "/" stays "/".
+            label = m_local->displayPath(dir);
+            if (label.size() > 1 && (label.endsWith(QLatin1Char('\\')) || label.endsWith(QLatin1Char('/')))) {
+                label.chop(1);
+            }
         }
+        crumbs.prepend(Crumb{label, dir});
+        dir = m_local->parentPath(dir);
     }
-    m_drives->setCurrentIndex(-1);
+    m_pathBar->setLocation(display, crumbs);
+}
+
+void FilePanel::recordHistory(const QString &path)
+{
+    if (m_historyIndex >= 0 && m_history.at(m_historyIndex) == path) {
+        return;
+    }
+    // A new folder after going back drops the forward entries, as in a browser.
+    m_history.resize(m_historyIndex + 1);
+    m_history.append(path);
+    if (m_history.size() > MaxHistory) {
+        m_history.removeFirst();
+    }
+    m_historyIndex = static_cast<int>(m_history.size()) - 1;
+}
+
+bool FilePanel::canGoBack() const
+{
+    return m_historyIndex > 0;
+}
+
+bool FilePanel::canGoForward() const
+{
+    return m_historyIndex >= 0 && m_historyIndex < m_history.size() - 1;
+}
+
+void FilePanel::goBack()
+{
+    if (canGoBack()) {
+        goToHistory(m_historyIndex - 1);
+    }
+}
+
+void FilePanel::goForward()
+{
+    if (canGoForward()) {
+        goToHistory(m_historyIndex + 1);
+    }
+}
+
+void FilePanel::goToHistory(int index)
+{
+    setPath(m_history.at(index));
+    // Set after setPath, which clears it for ordinary loads.
+    m_historyTarget = index;
+}
+
+bool FilePanel::canGoUp() const
+{
+    return isShowingResults() || !m_source->parentPath(m_path).isEmpty();
+}
+
+bool FilePanel::canOpenTerminal() const
+{
+    return !m_networkPending && !m_unreachable;
+}
+
+void FilePanel::openTerminalHere()
+{
+    if (!canOpenTerminal()) {
+        return;
+    }
+    QString error;
+    if (!openTerminal(persistentPath(), &error)) {
+        QMessageBox::warning(this, tr("Open Terminal"), error);
+    }
 }
 
 void FilePanel::showError(const QString &message)

@@ -45,6 +45,8 @@ private:
     void setShowHidden(bool show);
     PanelTabs *activeSide() const;
     FilePanel *otherPanel() const;
+    // Puts the drive and navigation row above a side's tabs.
+    QWidget *wrapWithToolbar(PanelTabs *side);
 
     void cmCopy();
     void cmRename();

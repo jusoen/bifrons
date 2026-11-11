@@ -20,6 +20,10 @@ public:
     static QString normalise(const QString &path);
     // Closest existing directory at or above path, or the home directory if none.
     static QString nearestExistingDir(const QString &path);
+    // True for a bare network server such as "//server" (Windows only). Listing one shows its shares.
+    static bool isUncServer(const QString &path);
+    // True for a UNC path or a mapped network drive. Does not wait on the network, so safe on the UI thread.
+    static bool isNetworkPath(const QString &path);
     static FileItem itemFromInfo(const QFileInfo &info);
 };
 

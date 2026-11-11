@@ -16,7 +16,7 @@ private slots:
 
     void displayName()
     {
-        QCOMPARE(dcpp::appDisplayName(), QStringLiteral("DC++"));
+        QCOMPARE(dcpp::appDisplayName(), QStringLiteral("Bifrons"));
     }
 };
 

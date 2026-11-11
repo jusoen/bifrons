@@ -2,14 +2,16 @@
 
 #include <QApplication>
 #include <QDir>
-#include <QDrag>
-#include <QDragEnterEvent>
-#include <QMimeData>
+#include <QFrame>
+#include <QKeyEvent>
+#include <QLabel>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QTabBar>
 #include <QTimer>
 
 #include <algorithm>
+#include <cmath>
 
 #include "core/localfilesource.h"
 #include "ui/filepanel.h"
@@ -18,11 +20,137 @@ namespace dcpp {
 
 namespace {
 constexpr int DragOutMargin = 20;
-constexpr const char *TabMimeType = "application/x-dcpp-tab";
+constexpr int DropMarkerWidth = 3;
 } // namespace
 
-QPointer<PanelTabs> PanelTabs::s_dragSource;
-QPointer<FilePanel> PanelTabs::s_dragPanel;
+// Redraws one tab bar during a tab drag: the dragged tab can be taken out, and a gap opens where it
+// would drop. Tabs slide to their new places a step per frame, like the bar's own reordering.
+class TabGhost : public QWidget
+{
+public:
+    // dragged is the dragged tab's widget when this is the source bar, otherwise nullptr.
+    TabGhost(QTabBar *bar, const QWidget *dragged, const QHash<QWidget *, QPixmap> &images,
+             const QList<QWidget *> &pages, QWidget *top)
+        : QWidget(top)
+        , m_bar(bar)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        const int n = bar->count();
+        for (int i = 0; i < n; ++i) {
+            const QRect r = bar->tabRect(i);
+            Item item;
+            const QWidget *page = i < pages.size() ? pages.at(i) : nullptr;
+            item.image = images.value(const_cast<QWidget *>(page), QPixmap());
+            if (item.image.isNull()) {
+                item.image = bar->grab(r);
+            }
+            item.top = r.top();
+            item.advance = i + 1 < n ? bar->tabRect(i + 1).left() - r.left() : r.width() + TrailingSpacing;
+            item.x = r.left();
+            item.target = r.left();
+            item.dragged = page != nullptr && page == dragged;
+            m_items.append(item);
+        }
+        m_origin = n > 0 ? bar->tabRect(0).left() : 0;
+        setGeometry(QRect(bar->mapTo(top, QPoint(0, 0)), bar->size()));
+        m_timer.setInterval(FrameMs);
+        QObject::connect(&m_timer, &QTimer::timeout, this, [this] { step(); });
+        show();
+    }
+
+    // Lays the tabs out with a gap of gapWidth before visible tab gap (-1 for no gap).
+    // showDragged keeps the dragged tab in its slot, as for a copy.
+    void setLayout(bool showDragged, int gap, int gapWidth)
+    {
+        int x = m_origin;
+        int visible = 0;
+        for (Item &item : m_items) {
+            item.hidden = item.dragged && !showDragged;
+            if (item.hidden) {
+                continue;
+            }
+            if (visible == gap) {
+                x += gapWidth;
+            }
+            item.target = x;
+            x += item.advance;
+            ++visible;
+        }
+        m_timer.start();
+    }
+
+    // Insertion index among visible tabs for a drop at barX, against the layout without a gap.
+    int indexAt(int barX, bool showDragged) const
+    {
+        int x = m_origin;
+        int index = 0;
+        for (const Item &item : m_items) {
+            if (item.dragged && !showDragged) {
+                continue;
+            }
+            if (barX < x + item.advance / 2) {
+                return index;
+            }
+            x += item.advance;
+            ++index;
+        }
+        return index;
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.fillRect(rect(), m_bar->palette().color(QPalette::Window));
+        for (const Item &item : std::as_const(m_items)) {
+            if (!item.hidden) {
+                painter.drawPixmap(QPointF(item.x, item.top), item.image);
+            }
+        }
+    }
+
+private:
+    static constexpr int FrameMs = 16;
+    // Fraction of the remaining distance covered per frame, so a slide settles in about 150 ms.
+    static constexpr qreal Ease = 0.3;
+    static constexpr int TrailingSpacing = 2;
+
+    struct Item
+    {
+        QPixmap image;
+        int top = 0;
+        int advance = 0;
+        qreal x = 0;
+        int target = 0;
+        bool dragged = false;
+        bool hidden = false;
+    };
+
+    void step()
+    {
+        bool moving = false;
+        for (Item &item : m_items) {
+            const qreal remaining = item.target - item.x;
+            if (std::abs(remaining) < 0.5) {
+                item.x = item.target;
+            } else {
+                item.x += remaining * Ease;
+                moving = true;
+            }
+        }
+        if (!moving) {
+            m_timer.stop();
+        }
+        update();
+    }
+
+    QTabBar *m_bar;
+    QList<Item> m_items;
+    int m_origin = 0;
+    QTimer m_timer;
+};
+
+PanelTabs::TabDrag PanelTabs::s_drag;
 
 PanelTabs::PanelTabs(std::shared_ptr<const FileSource> source, QWidget *parent)
     : QTabWidget(parent)
@@ -34,29 +162,48 @@ PanelTabs::PanelTabs(std::shared_ptr<const FileSource> source, QWidget *parent)
     setTabBarAutoHide(true);
     tabBar()->setFocusPolicy(Qt::NoFocus);
     tabBar()->setExpanding(false);
-    tabBar()->setStyleSheet(QStringLiteral(
-        "QTabBar::tab { padding: 4px 12px; margin-right: 2px; border: 1px solid palette(mid);"
-        "  border-bottom: 3px solid transparent; border-top-left-radius: 3px; border-top-right-radius: 3px;"
-        "  background: palette(window); color: palette(mid); }"
-        "QTabBar::tab:hover:!selected { color: palette(window-text); }"
-        "QTabBar::tab:selected { font-weight: bold; background: palette(base); color: palette(window-text);"
-        "  border-bottom: 3px solid palette(highlight); }"));
+    setFocusedSide(false);
 
     connect(this, &QTabWidget::currentChanged, this, [this](int) {
         FilePanel *panel = currentPanel();
+        emit currentPanelChanged(panel);
         if (panel != nullptr) {
             panel->focusView();
             emit panelActivated(panel);
         }
     });
     tabBar()->installEventFilter(this);
-    setAcceptDrops(true);
 }
 
 bool PanelTabs::eventFilter(QObject *watched, QEvent *event)
 {
+    // While a tab drag runs, this side also filters the whole application for Escape and focus loss.
+    if (tabDragActive() && s_drag.source == this && watched != tabBar()) {
+        if (event->type() == QEvent::KeyPress && static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) {
+            cancelTabDrag();
+            return true;
+        }
+        if (event->type() == QEvent::ApplicationDeactivate) {
+            cancelTabDrag();
+        }
+        return QTabWidget::eventFilter(watched, event);
+    }
     if (watched != tabBar()) {
         return QTabWidget::eventFilter(watched, event);
+    }
+    if (tabDragActive() && s_drag.source == this) {
+        if (event->type() == QEvent::MouseMove) {
+            const auto *mouse = static_cast<QMouseEvent *>(event);
+            updateTabDrag(mouse->globalPosition().toPoint(), mouse->modifiers());
+            return true;
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            const auto *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                finishTabDrag(mouse->globalPosition().toPoint(), mouse->modifiers());
+            }
+            return true;
+        }
     }
     switch (event->type()) {
     case QEvent::MouseButtonPress: {
@@ -65,6 +212,14 @@ bool PanelTabs::eventFilter(QObject *watched, QEvent *event)
         // Track the panel, not the index: the bar may reorder tabs before the drag leaves it.
         m_pressPanel = index >= 0 ? qobject_cast<FilePanel *>(widget(index)) : nullptr;
         m_pressPos = mouse->position().toPoint();
+        // Snapshot now: once the bar's own move starts, tabs are drawn away from their slots.
+        m_pressImages.clear();
+        if (index >= 0) {
+            for (int i = 0; i < count(); ++i) {
+                m_pressImages.insert(widget(i), tabBar()->grab(tabBar()->tabRect(i)));
+            }
+        }
+        m_pressOffsetX = index >= 0 ? m_pressPos.x() - tabBar()->tabRect(index).left() : 0;
         break;
     }
     case QEvent::MouseMove: {
@@ -78,7 +233,7 @@ bool PanelTabs::eventFilter(QObject *watched, QEvent *event)
         const bool ctrlDrag = mouse->modifiers().testFlag(Qt::ControlModifier)
             && (pos - m_pressPos).manhattanLength() >= QApplication::startDragDistance();
         if (ctrlDrag || !zone.contains(pos)) {
-            startTabDrag(m_pressPanel);
+            beginTabDrag(m_pressPanel, mouse->globalPosition().toPoint());
             return true;
         }
         if (mouse->modifiers().testFlag(Qt::ControlModifier)) {
@@ -103,7 +258,12 @@ bool PanelTabs::eventFilter(QObject *watched, QEvent *event)
     return QTabWidget::eventFilter(watched, event);
 }
 
-void PanelTabs::startTabDrag(FilePanel *panel)
+bool PanelTabs::tabDragActive() const
+{
+    return s_drag.source != nullptr;
+}
+
+void PanelTabs::beginTabDrag(FilePanel *panel, const QPoint &globalPos)
 {
     m_pressPanel = nullptr;
     // End the tab bar's own in-bar move first, or it stays stuck mid-drag.
@@ -111,85 +271,173 @@ void PanelTabs::startTabDrag(FilePanel *panel)
                         Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     QCoreApplication::sendEvent(tabBar(), &release);
     const int index = indexOf(panel);
-    if (index < 0) {
+    QWidget *top = window();
+    if (index < 0 || top == nullptr || tabDragActive()) {
         return;
     }
 
-    auto *mime = new QMimeData;
-    mime->setData(QLatin1String(TabMimeType), QByteArray());
-    QDrag drag(this);
-    drag.setMimeData(mime);
-    drag.setPixmap(tabBar()->grab(tabBar()->tabRect(index)));
-    s_dragSource = this;
-    s_dragPanel = panel;
-    // The drop target does the work, so the reported action is not needed.
-    (void)drag.exec(Qt::MoveAction | Qt::CopyAction, Qt::MoveAction);
-    s_dragSource = nullptr;
-    s_dragPanel = nullptr;
+    const QRect tabRect = tabBar()->tabRect(index);
+    auto *image = new QLabel(top);
+    const QPixmap pressed = m_pressImages.value(panel);
+    image->setPixmap(pressed.isNull() ? tabBar()->grab(tabRect) : pressed);
+    image->setAttribute(Qt::WA_TransparentForMouseEvents);
+    image->adjustSize();
+    auto *marker = new QFrame(top);
+    marker->setAttribute(Qt::WA_TransparentForMouseEvents);
+    marker->setStyleSheet(QStringLiteral("QFrame { background: palette(highlight); }"));
+    marker->resize(DropMarkerWidth, tabRect.height());
+    marker->hide();
+
+    s_drag.source = this;
+    s_drag.panel = panel;
+    s_drag.image = image;
+    s_drag.marker = marker;
+    // Where the cursor held the tab at press. The tab may have slid in its bar since then.
+    s_drag.grabOffsetX = m_pressOffsetX;
+    s_drag.rowTop = tabBar()->mapTo(top, tabRect.topLeft()).y();
+    (void)ghostFor(this); // The source row redraws from the start, so the dragged tab can leave it.
+
+    image->raise();
+    image->show();
+    // The tab bar receives every move and the release, even outside it.
+    tabBar()->grabMouse();
+    qApp->installEventFilter(this);
+    QApplication::setOverrideCursor(Qt::ArrowCursor);
+    updateTabDrag(globalPos, QGuiApplication::keyboardModifiers());
 }
 
-bool PanelTabs::acceptsTabDrop(const QMimeData *mime, bool copy) const
+TabGhost *PanelTabs::ghostFor(PanelTabs *tabs)
 {
-    // Moving onto the same side is the tab bar's job. Copying onto it duplicates.
-    return mime->hasFormat(QLatin1String(TabMimeType)) && s_dragSource != nullptr
-        && (copy || s_dragSource != this) && s_dragPanel != nullptr && s_dragSource->indexOf(s_dragPanel) >= 0;
-}
-
-void PanelTabs::dragEnterEvent(QDragEnterEvent *event)
-{
-    const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
-    if (acceptsTabDrop(event->mimeData(), copy)) {
-        event->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
-        event->accept();
-        return;
-    }
-    // Accept the enter anyway, so pressing Ctrl later re-evaluates in dragMoveEvent.
-    if (acceptsTabDrop(event->mimeData(), true)) {
-        event->setDropAction(Qt::IgnoreAction);
-        event->accept();
-        return;
-    }
-    QTabWidget::dragEnterEvent(event);
-}
-
-void PanelTabs::dragMoveEvent(QDragMoveEvent *event)
-{
-    const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
-    if (acceptsTabDrop(event->mimeData(), copy)) {
-        event->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
-        event->accept();
-        return;
-    }
-    event->ignore();
-}
-
-void PanelTabs::dropEvent(QDropEvent *event)
-{
-    const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
-    if (!acceptsTabDrop(event->mimeData(), copy)) {
-        QTabWidget::dropEvent(event);
-        return;
-    }
-    int index = -1;
-    if (tabBar()->isVisible()) {
-        const QPoint pos = tabBar()->mapFrom(this, event->position().toPoint());
-        index = tabBar()->tabAt(pos);
-        // The right half of a tab means "after it".
-        if (index >= 0 && pos.x() > tabBar()->tabRect(index).center().x()) {
-            ++index;
+    QPointer<TabGhost> &ghost = s_drag.ghosts[tabs];
+    if (ghost == nullptr && tabs->tabBar()->isVisible() && window() != nullptr) {
+        QList<QWidget *> pages;
+        for (int i = 0; i < tabs->count(); ++i) {
+            pages.append(tabs->widget(i));
+        }
+        const bool source = tabs == s_drag.source;
+        ghost = new TabGhost(tabs->tabBar(), source ? s_drag.panel.data() : nullptr,
+                             source ? m_pressImages : QHash<QWidget *, QPixmap>(), pages, window());
+        if (s_drag.image != nullptr) {
+            s_drag.image->raise();
         }
     }
-    if (index < 0) {
-        index = s_dragSource == this ? indexOf(s_dragPanel) + 1 : count();
+    return ghost;
+}
+
+PanelTabs *PanelTabs::dropTargetAt(int globalX) const
+{
+    QWidget *top = window();
+    if (top == nullptr) {
+        return nullptr;
+    }
+    // Probe the middle of the tab row, so the vertical cursor position never matters.
+    const QPoint probe(globalX, top->mapToGlobal(QPoint(0, s_drag.rowTop + tabBar()->height() / 2)).y());
+    for (QWidget *w = QApplication::widgetAt(probe); w != nullptr; w = w->parentWidget()) {
+        if (auto *tabs = qobject_cast<PanelTabs *>(w)) {
+            return tabs;
+        }
+    }
+    return nullptr;
+}
+
+int PanelTabs::dropIndex(PanelTabs *target, int globalX, bool copy)
+{
+    const bool showDragged = copy || target != s_drag.source;
+    TabGhost *ghost = ghostFor(target);
+    if (ghost == nullptr) {
+        // A hidden bar has one tab. Without Ctrl on its own side there is nowhere else to go.
+        return showDragged ? target->count() : 0;
+    }
+    return ghost->indexAt(target->tabBar()->mapFromGlobal(QPoint(globalX, 0)).x(), showDragged);
+}
+
+void PanelTabs::updateTabDrag(const QPoint &globalPos, Qt::KeyboardModifiers modifiers)
+{
+    QWidget *top = window();
+    if (top == nullptr || s_drag.image == nullptr || s_drag.marker == nullptr) {
+        cancelTabDrag();
+        return;
+    }
+    const int x = top->mapFromGlobal(globalPos).x() - s_drag.grabOffsetX;
+    const int maxX = std::max(0, top->width() - s_drag.image->width());
+    s_drag.image->move(std::clamp(x, 0, maxX), s_drag.rowTop);
+
+    const bool copy = modifiers.testFlag(Qt::ControlModifier);
+    PanelTabs *target = dropTargetAt(globalPos.x());
+    const int index = target != nullptr ? dropIndex(target, globalPos.x(), copy) : -1;
+    const int gapWidth = s_drag.image->width() + 2;
+    for (auto it = s_drag.ghosts.begin(); it != s_drag.ghosts.end(); ++it) {
+        if (it.value() == nullptr) {
+            continue;
+        }
+        const bool showDragged = copy || it.key() != s_drag.source;
+        it.value()->setLayout(showDragged, it.key() == target ? index : -1, gapWidth);
+    }
+    if (target == nullptr) {
+        s_drag.marker->hide();
+        QApplication::changeOverrideCursor(Qt::ForbiddenCursor);
+        return;
+    }
+    // A move keeps the plain pointer, as in the tab bar's own drag. Only a copy is marked.
+    QApplication::changeOverrideCursor(copy ? Qt::DragCopyCursor : Qt::ArrowCursor);
+    if (s_drag.ghosts.value(target) != nullptr) {
+        s_drag.marker->hide();
+    } else {
+        // The bar is hidden, so mark the start of the side instead of opening a gap.
+        s_drag.marker->move(target->mapTo(top, QPoint(0, 0)).x(), s_drag.rowTop);
+        s_drag.marker->raise();
+        s_drag.marker->show();
+    }
+    s_drag.image->raise();
+}
+
+void PanelTabs::finishTabDrag(const QPoint &globalPos, Qt::KeyboardModifiers modifiers)
+{
+    const bool copy = modifiers.testFlag(Qt::ControlModifier);
+    PanelTabs *target = dropTargetAt(globalPos.x());
+    const int index = target != nullptr ? dropIndex(target, globalPos.x(), copy) : -1;
+    FilePanel *panel = s_drag.panel;
+    PanelTabs *source = s_drag.source;
+    cancelTabDrag();
+    if (target == nullptr || panel == nullptr || source == nullptr || source->indexOf(panel) < 0) {
+        return;
     }
     if (copy) {
-        duplicateTab(s_dragPanel, index);
-        event->setDropAction(Qt::CopyAction);
-    } else {
-        s_dragSource->moveTabTo(s_dragPanel, this, index);
-        event->setDropAction(Qt::MoveAction);
+        target->duplicateTab(panel, index);
+        return;
     }
-    event->accept();
+    if (target != source) {
+        source->moveTabTo(panel, target, index);
+        return;
+    }
+    // Same side: index already counts the tabs without the dragged one.
+    const int from = source->indexOf(panel);
+    const int to = std::clamp(index, 0, source->count() - 1);
+    if (to != from) {
+        source->tabBar()->moveTab(from, to);
+    }
+    source->setCurrentWidget(panel);
+    source->activateAfterDrop(panel);
+}
+
+void PanelTabs::cancelTabDrag()
+{
+    if (!tabDragActive()) {
+        return;
+    }
+    PanelTabs *source = s_drag.source;
+    delete s_drag.image;
+    delete s_drag.marker;
+    for (const QPointer<TabGhost> &ghost : std::as_const(s_drag.ghosts)) {
+        delete ghost.data();
+    }
+    s_drag = TabDrag();
+    if (source != nullptr) {
+        source->tabBar()->releaseMouse();
+        source->m_pressImages.clear();
+        qApp->removeEventFilter(source);
+    }
+    QApplication::restoreOverrideCursor();
 }
 
 void PanelTabs::duplicateTab(const FilePanel *original, int index)
@@ -242,6 +490,20 @@ void PanelTabs::adoptPanel(FilePanel *panel, int index)
 FilePanel *PanelTabs::currentPanel() const
 {
     return qobject_cast<FilePanel *>(currentWidget());
+}
+
+void PanelTabs::setFocusedSide(bool focused)
+{
+    // The focused side is already marked by its blue address bar, so its tab drops the underline.
+    // The border stays 3px either way so the tab height does not jump.
+    const QString underline = focused ? QStringLiteral("transparent") : QStringLiteral("palette(highlight)");
+    tabBar()->setStyleSheet(QStringLiteral(
+        "QTabBar::tab { padding: 4px 12px; margin-right: 2px; border: 1px solid palette(mid);"
+        "  border-bottom: 3px solid transparent; border-top-left-radius: 3px; border-top-right-radius: 3px;"
+        "  background: palette(window); color: palette(mid); }"
+        "QTabBar::tab:hover:!selected { color: palette(window-text); }"
+        "QTabBar::tab:selected { font-weight: bold; background: palette(base); color: palette(window-text);"
+        "  border-bottom: 3px solid %1; }").arg(underline));
 }
 
 QList<FilePanel *> PanelTabs::panels() const
@@ -337,7 +599,7 @@ FilePanel *PanelTabs::addPanel(int index, const TabState &state)
     panel->setSort(state.sortColumn, state.sortOrder);
     panel->setShowHidden(m_showHidden);
     adoptPanel(panel, index);
-    panel->setPath(LocalFileSource::nearestExistingDir(state.path));
+    panel->restorePath(state.path);
     return panel;
 }
 

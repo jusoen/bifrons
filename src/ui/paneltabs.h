@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QHash>
+#include <QPixmap>
 #include <QPointer>
 #include <QTabWidget>
 
@@ -8,11 +10,13 @@
 #include "core/filesort.h"
 #include "core/filesource.h"
 
-class QMimeData;
+class QFrame;
+class QLabel;
 
 namespace dcpp {
 
 class FilePanel;
+class TabGhost;
 
 // Saved state of one tab.
 struct TabState
@@ -32,6 +36,8 @@ public:
 
     FilePanel *currentPanel() const;
     QList<FilePanel *> panels() const;
+    // Restyles the selected tab for the side that has focus.
+    void setFocusedSide(bool focused);
 
     // Opens a tab after the current one showing the same folder, and switches to it.
     void newTab();
@@ -51,12 +57,10 @@ signals:
     void panelActivated(dcpp::FilePanel *panel);
     void switchPanelRequested();
     void currentItemChanged(dcpp::FilePanel *panel);
+    void currentPanelChanged(dcpp::FilePanel *panel);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
-    void dragEnterEvent(QDragEnterEvent *event) override;
-    void dragMoveEvent(QDragMoveEvent *event) override;
-    void dropEvent(QDropEvent *event) override;
 
 private:
     FilePanel *addPanel(int index, const TabState &state);
@@ -64,16 +68,43 @@ private:
     void moveTabTo(FilePanel *panel, PanelTabs *target, int index);
     void duplicateTab(const FilePanel *original, int index);
     void activateAfterDrop(FilePanel *panel);
-    void startTabDrag(FilePanel *panel);
-    bool acceptsTabDrop(const QMimeData *mime, bool copy) const;
 
-    // The tab being dragged between sides. Drags never cross processes.
-    static QPointer<PanelTabs> s_dragSource;
-    static QPointer<FilePanel> s_dragPanel;
+    // Tab drag that keeps the tab image in the tab row, across both sides.
+    // Ctrl at release duplicates the tab, otherwise it moves.
+    struct TabDrag
+    {
+        QPointer<PanelTabs> source;
+        QPointer<FilePanel> panel;
+        QPointer<QLabel> image;
+        QPointer<QFrame> marker;
+        // Cursor offset into the tab image, so the image does not jump under the cursor.
+        int grabOffsetX = 0;
+        // Tab row top in window coordinates. The image never leaves it.
+        int rowTop = 0;
+        // Overlays that redraw each side's tab row with a gap sliding to the drop point.
+        QHash<PanelTabs *, QPointer<TabGhost>> ghosts;
+    };
+    void beginTabDrag(FilePanel *panel, const QPoint &globalPos);
+    void updateTabDrag(const QPoint &globalPos, Qt::KeyboardModifiers modifiers);
+    void finishTabDrag(const QPoint &globalPos, Qt::KeyboardModifiers modifiers);
+    void cancelTabDrag();
+    // Side under the tab row at globalX, or nullptr when none.
+    PanelTabs *dropTargetAt(int globalX) const;
+    // Where a tab dropped on target at globalX goes, as an index into target's tabs after the
+    // dragged tab is taken out (a move within its own side) or left in (a copy, or another side).
+    int dropIndex(PanelTabs *target, int globalX, bool copy);
+    // The overlay for tabs, created on first use. nullptr while its tab bar is hidden.
+    TabGhost *ghostFor(PanelTabs *tabs);
+    bool tabDragActive() const;
+
+    static TabDrag s_drag;
 
     bool m_showHidden = false;
     QPointer<FilePanel> m_pressPanel;
     QPoint m_pressPos;
+    // Every tab's image at press, before the bar's own move starts sliding them.
+    QHash<QWidget *, QPixmap> m_pressImages;
+    int m_pressOffsetX = 0;
     void closeTab(int index);
     void updateTitle(FilePanel *panel);
 

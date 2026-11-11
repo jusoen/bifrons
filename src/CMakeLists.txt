@@ -34,6 +34,10 @@ add_library(dcpp_core STATIC
 )
 target_include_directories(dcpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(dcpp_core PUBLIC Qt6::Core)
+if(WIN32)
+    # NetShareEnum, for listing the shares of a network server.
+    target_link_libraries(dcpp_core PRIVATE netapi32)
+endif()
 target_compile_definitions(dcpp_core PUBLIC DCPP_VERSION="${PROJECT_VERSION}")
 
 qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
@@ -60,6 +64,12 @@ qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
     ui/markdownview.cpp
     ui/paneltabs.h
     ui/paneltabs.cpp
+    ui/paneltoolbar.h
+    ui/paneltoolbar.cpp
+    ui/pathbar.h
+    ui/pathbar.cpp
+    ui/terminal.h
+    ui/terminal.cpp
     ui/viewerwidget.h
     ui/viewerwidget.cpp
     ui/viewerwindow.h

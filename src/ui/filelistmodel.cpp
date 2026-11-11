@@ -13,7 +13,28 @@ FileListModel::FileListModel(QObject *parent)
     : QAbstractTableModel(parent)
     , m_dirIcon(QApplication::style()->standardIcon(QStyle::SP_DirIcon))
     , m_fileIcon(QApplication::style()->standardIcon(QStyle::SP_FileIcon))
+    , m_parentIcon(QIcon::fromTheme(QIcon::ThemeIcon::GoUp))
 {
+    if (m_parentIcon.isNull()) {
+        m_parentIcon = QApplication::style()->standardIcon(QStyle::SP_FileDialogToParent);
+    }
+    for (const QSize &size : {QSize(16, 16), QSize(20, 20), QSize(24, 24), QSize(32, 32)}) {
+        const QPixmap normal = m_parentIcon.pixmap(size, QIcon::Normal);
+        m_parentIconInactive.addPixmap(normal, QIcon::Normal);
+        m_parentIconInactive.addPixmap(normal, QIcon::Selected);
+    }
+}
+
+void FileListModel::setPanelActive(bool active)
+{
+    if (m_panelActive == active) {
+        return;
+    }
+    m_panelActive = active;
+    if (m_showParent) {
+        const QModelIndex cell = index(0, static_cast<int>(SortColumn::Name));
+        emit dataChanged(cell, cell, {Qt::DecorationRole});
+    }
 }
 
 void FileListModel::setShowHidden(bool show)
@@ -82,7 +103,7 @@ QVariant FileListModel::data(const QModelIndex &index, int role) const
             return QStringLiteral("..");
         }
         if (column == SortColumn::Name && role == Qt::DecorationRole) {
-            return m_dirIcon;
+            return m_panelActive ? m_parentIcon : m_parentIconInactive;
         }
         return QVariant();
     }

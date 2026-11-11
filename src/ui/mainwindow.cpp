@@ -2,12 +2,14 @@
 
 #include <QCloseEvent>
 #include <QDir>
+#include <QFrame>
 #include <QInputDialog>
 #include <QAction>
 #include <QApplication>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -26,6 +28,7 @@
 #include "ui/multirenamedialog.h"
 #include "ui/operationrunner.h"
 #include "ui/paneltabs.h"
+#include "ui/paneltoolbar.h"
 #include "ui/viewerwidget.h"
 #include "ui/viewerwindow.h"
 
@@ -34,6 +37,42 @@
 namespace dcpp {
 
 namespace {
+
+// Double-clicking the divider splits the space evenly again.
+class CentringSplitterHandle : public QSplitterHandle
+{
+public:
+    using QSplitterHandle::QSplitterHandle;
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent *event) override
+    {
+        QSplitter *owner = splitter();
+        const int count = owner->count();
+        if (event->button() != Qt::LeftButton || count == 0) {
+            QSplitterHandle::mouseDoubleClickEvent(event);
+            return;
+        }
+        int total = 0;
+        for (const int size : owner->sizes()) {
+            total += size;
+        }
+        owner->setSizes(QList<int>(count, total / count));
+        event->accept();
+    }
+};
+
+class CentringSplitter : public QSplitter
+{
+public:
+    using QSplitter::QSplitter;
+
+protected:
+    QSplitterHandle *createHandle() override
+    {
+        return new CentringSplitterHandle(orientation(), this);
+    }
+};
 
 constexpr int MaxErrorsShown = 20;
 constexpr int MaxTabsRestored = 100;
@@ -54,10 +93,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_left = new PanelTabs(m_source, this);
     m_right = new PanelTabs(m_source, this);
     m_leftStack = new QStackedWidget(this);
-    m_leftStack->addWidget(m_left);
+    m_leftStack->addWidget(wrapWithToolbar(m_left));
     m_rightStack = new QStackedWidget(this);
-    m_rightStack->addWidget(m_right);
-    m_splitter = new QSplitter(Qt::Horizontal, this);
+    m_rightStack->addWidget(wrapWithToolbar(m_right));
+    m_splitter = new CentringSplitter(Qt::Horizontal, this);
     m_splitter->addWidget(m_leftStack);
     m_splitter->addWidget(m_rightStack);
     m_splitter->setChildrenCollapsible(false);
@@ -67,9 +106,19 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&m_quickTimer, &QTimer::timeout, this, &MainWindow::updateQuickView);
 
     auto *central = new QWidget(this);
-    auto *layout = new QVBoxLayout(central);
+    auto *outer = new QVBoxLayout(central);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+    // Full-width rule separating the menu bar from the panels.
+    auto *rule = new QFrame(central);
+    rule->setFrameShape(QFrame::NoFrame);
+    rule->setFixedHeight(1);
+    rule->setStyleSheet(QStringLiteral("QFrame { background: palette(dark); }"));
+    outer->addWidget(rule);
+    auto *layout = new QVBoxLayout;
     layout->setContentsMargins(4, 4, 4, 4);
     layout->addWidget(m_splitter, 1);
+    outer->addLayout(layout, 1);
     setCentralWidget(central);
 
     for (PanelTabs *side : {m_left, m_right}) {
@@ -107,6 +156,12 @@ void MainWindow::createCommands()
     m_commands->add(QStringLiteral("cm_MakeDir"), tr("&New Folder…"), Qt::Key_F7, [this] { cmMakeDir(); });
     m_commands->add(QStringLiteral("cm_Delete"), tr("&Delete…"), Qt::Key_F8, [this] { cmDelete(); });
     m_commands->add(QStringLiteral("cm_Refresh"), tr("&Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
+    m_commands->add(QStringLiteral("cm_RunTerm"), tr("Open &Terminal Here"), QKeySequence(),
+                    [this] { m_active->openTerminalHere(); });
+    m_commands->add(QStringLiteral("cm_ViewHistoryPrev"), tr("&Back"), Qt::ALT | Qt::Key_Left,
+                    [this] { m_active->goBack(); });
+    m_commands->add(QStringLiteral("cm_ViewHistoryNext"), tr("&Forward"), Qt::ALT | Qt::Key_Right,
+                    [this] { m_active->goForward(); });
     m_commands->add(QStringLiteral("cm_Exit"), tr("E&xit"), Qt::ALT | Qt::Key_X, [this] { close(); });
     QAction *hidden = m_commands->add(QStringLiteral("cm_ShowSysFiles"), tr("Show &Hidden Files"),
                                       Qt::CTRL | Qt::Key_Period, [this] { setShowHidden(!m_showHidden); });
@@ -129,7 +184,7 @@ void MainWindow::createCommands()
         fillFavouritesMenu(&menu);
         menu.exec(m_active->mapToGlobal(QPoint(0, 0)));
     });
-    m_commands->add(QStringLiteral("cm_About"), tr("&About DC++"), QKeySequence(), [this] {
+    m_commands->add(QStringLiteral("cm_About"), tr("&About %1").arg(appDisplayName()), QKeySequence(), [this] {
         QMessageBox::about(this, tr("About %1").arg(appDisplayName()),
                            tr("%1 %2\n\nA dual-pane file manager inspired by Double Commander.\nMIT licence.")
                                .arg(appDisplayName(), appVersion()));
@@ -164,7 +219,8 @@ void MainWindow::createMenus()
     addMenu(tr("&File"), {"cm_View", nullptr, "cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete", nullptr,
                           "cm_MultiRename", nullptr, "cm_Exit"});
     addMenu(tr("&Mark"), {"cm_MarkPlus", "cm_MarkMinus", nullptr, "cm_MarkMarkAll", "cm_MarkUnmarkAll"});
-    addMenu(tr("&Commands"), {"cm_Search", nullptr, "cm_Refresh"});
+    addMenu(tr("&Commands"), {"cm_Search", "cm_RunTerm", nullptr, "cm_ViewHistoryPrev", "cm_ViewHistoryNext",
+                              nullptr, "cm_Refresh"});
     addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
     QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
     connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
@@ -187,7 +243,7 @@ void MainWindow::fillFavouritesMenu(QMenu *menu)
         });
     }
     if (m_favourites.isEmpty()) {
-        menu->addAction(tr("(No favourites yet)"))->setEnabled(false);
+        menu->addAction(tr("(No favourites)"))->setEnabled(false);
     }
     menu->setToolTipsVisible(true);
     menu->addSeparator();
@@ -238,6 +294,7 @@ void MainWindow::setActivePanel(FilePanel *panel)
     m_active = panel;
     m_activeSide = m_right->indexOf(panel) >= 0 ? m_right : m_left;
     for (PanelTabs *side : {m_left, m_right}) {
+        side->setFocusedSide(side == m_activeSide);
         for (FilePanel *p : side->panels()) {
             p->setActive(p == panel);
         }
@@ -245,6 +302,20 @@ void MainWindow::setActivePanel(FilePanel *panel)
     if (m_quickSide != nullptr) {
         m_quickTimer.start();
     }
+}
+
+QWidget *MainWindow::wrapWithToolbar(PanelTabs *side)
+{
+    auto *container = new QWidget(this);
+    auto *toolbar = new PanelToolbar(container);
+    auto *layout = new QVBoxLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(2);
+    layout->addWidget(toolbar);
+    layout->addWidget(side, 1);
+    connect(side, &PanelTabs::currentPanelChanged, toolbar, &PanelToolbar::setPanel);
+    toolbar->setPanel(side->currentPanel());
+    return container;
 }
 
 FilePanel *MainWindow::otherPanel() const
