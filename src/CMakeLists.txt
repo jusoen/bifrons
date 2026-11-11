@@ -2,6 +2,21 @@
 add_library(dcpp_core STATIC
     core/appinfo.h
     core/appinfo.cpp
+    core/fileitem.h
+    core/fileitem.cpp
+    core/filemask.h
+    core/filemask.cpp
+    core/fileoperation.h
+    core/fileoperation.cpp
+    core/filesort.h
+    core/filesort.cpp
+    core/filesource.h
+    core/localfileoperation.h
+    core/localfileoperation.cpp
+    core/localfilesource.h
+    core/localfilesource.cpp
+    core/transfer.h
+    core/transfer.cpp
 )
 target_include_directories(dcpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(dcpp_core PUBLIC Qt6::Core)
@@ -9,10 +24,18 @@ target_compile_definitions(dcpp_core PUBLIC DCPP_VERSION="${PROJECT_VERSION}")
 
 qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
     main.cpp
+    ui/commandregistry.h
+    ui/commandregistry.cpp
+    ui/filelistmodel.h
+    ui/filelistmodel.cpp
+    ui/filepanel.h
+    ui/filepanel.cpp
     ui/mainwindow.h
     ui/mainwindow.cpp
+    ui/operationrunner.h
+    ui/operationrunner.cpp
 )
-target_link_libraries(dcpp PRIVATE dcpp_core Qt6::Widgets)
+target_link_libraries(dcpp PRIVATE dcpp_core Qt6::Widgets Qt6::Concurrent)
 
 # Copy the Qt runtime next to the executable so it runs from the build tree.
 if(WIN32)

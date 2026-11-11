@@ -12,3 +12,8 @@ function(dcpp_add_test name)
 endfunction()
 
 dcpp_add_test(tst_appinfo)
+dcpp_add_test(tst_filemask)
+dcpp_add_test(tst_filesort)
+dcpp_add_test(tst_localfilesource)
+dcpp_add_test(tst_localfileoperation)
+dcpp_add_test(tst_transfer)

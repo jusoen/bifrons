@@ -2,6 +2,7 @@
 rem Usage: build.bat [msvc-debug|msvc-release]   (default msvc-debug)
 
 setlocal
+cd /d "%~dp0"
 set PRESET=%1
 if "%PRESET%"=="" set PRESET=msvc-debug
 
