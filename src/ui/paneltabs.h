@@ -48,6 +48,7 @@ public:
 
     // Applies to every tab, including ones opened later.
     void setShowHidden(bool show);
+    void setShowFolderSizes(bool show);
 
     QList<TabState> state() const;
     // Replaces all tabs. An empty list leaves a single tab at the home folder.
@@ -101,6 +102,7 @@ private:
     static TabDrag s_drag;
 
     bool m_showHidden = false;
+    bool m_showFolderSizes = false;
     QPointer<FilePanel> m_pressPanel;
     QPoint m_pressPos;
     // Every tab's image at press, before the bar's own move starts sliding them.

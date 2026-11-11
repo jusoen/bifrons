@@ -39,6 +39,39 @@ void FileListModel::refreshIcon(const QString &name)
     }
 }
 
+void FileListModel::setDirSize(const QString &name, qint64 size)
+{
+    m_dirSizes.insert(name, size);
+    const int row = rowOfName(name);
+    if (row >= 0) {
+        const QModelIndex cell = index(row, static_cast<int>(SortColumn::Size));
+        emit dataChanged(cell, cell, {Qt::DisplayRole});
+    }
+}
+
+void FileListModel::clearDirSizes()
+{
+    if (m_dirSizes.isEmpty()) {
+        return;
+    }
+    m_dirSizes.clear();
+    const int column = static_cast<int>(SortColumn::Size);
+    if (rowCount() > 0) {
+        emit dataChanged(index(0, column), index(rowCount() - 1, column), {Qt::DisplayRole});
+    }
+}
+
+QStringList FileListModel::dirNames() const
+{
+    QStringList names;
+    for (const FileItem &item : m_all) {
+        if (item.isDir) {
+            names.append(item.name);
+        }
+    }
+    return names;
+}
+
 void FileListModel::setPanelActive(bool active)
 {
     if (m_panelActive == active) {
@@ -87,6 +120,8 @@ void FileListModel::setItems(FileItemList items, bool showParent, bool keepMarks
         m_marked = std::move(still);
     } else {
         m_marked.clear();
+        // A different folder: its subfolders' sizes are not known yet.
+        m_dirSizes.clear();
     }
     endResetModel();
     emit marksChanged();
@@ -135,7 +170,11 @@ QVariant FileListModel::data(const QModelIndex &index, int role) const
         case SortColumn::Extension:
             return item->extension();
         case SortColumn::Size:
-            return item->isDir ? QStringLiteral("<DIR>") : QLocale().toString(item->size);
+            if (item->isDir) {
+                const auto size = m_dirSizes.constFind(item->name);
+                return size == m_dirSizes.constEnd() ? QStringLiteral("<DIR>") : QLocale().toString(size.value());
+            }
+            return QLocale().toString(item->size);
         case SortColumn::Modified:
             return QLocale().toString(item->modified, QLocale::ShortFormat);
         case SortColumn::Attributes:

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractTableModel>
+#include <QHash>
 #include <QIcon>
 #include <QSet>
 
@@ -24,6 +25,11 @@ public:
     void setIconLookup(std::function<QIcon(const FileItem &)> lookup);
     // Repaints the icon of the entry called name, after its icon has loaded.
     void refreshIcon(const QString &name);
+    // Total size of folder name, shown in its Size column instead of <DIR>.
+    void setDirSize(const QString &name, qint64 size);
+    void clearDirSizes();
+    // Every folder in the listing, hidden ones included.
+    QStringList dirNames() const;
     // An inactive panel draws its cursor row pale, so the ".." arrow stays dark there.
     void setPanelActive(bool active);
     // Hiding drops marks on hidden entries.
@@ -78,6 +84,7 @@ private:
     QIcon m_parentIconInactive;
     bool m_panelActive = false;
     std::function<QIcon(const FileItem &)> m_iconLookup;
+    QHash<QString, qint64> m_dirSizes;
 };
 
 } // namespace bifrons

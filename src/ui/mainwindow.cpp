@@ -174,6 +174,9 @@ void MainWindow::createCommands()
     m_commands->add(QStringLiteral("cm_ViewHistoryNext"), tr("&Forward"), Qt::ALT | Qt::Key_Right,
                     [this] { m_active->goForward(); });
     m_commands->add(QStringLiteral("cm_Exit"), tr("E&xit"), Qt::ALT | Qt::Key_X, [this] { close(); });
+    m_commands->add(QStringLiteral("cm_ShowFolderSizes"), tr("Show &Folder Sizes"), QKeySequence(),
+                    [this] { setShowFolderSizes(!m_showFolderSizes); })
+        ->setCheckable(true);
     QAction *hidden = m_commands->add(QStringLiteral("cm_ShowSysFiles"), tr("Show &Hidden Files"),
                                       Qt::CTRL | Qt::Key_Period, [this] { setShowHidden(!m_showHidden); });
     hidden->setCheckable(true);
@@ -242,7 +245,7 @@ void MainWindow::createMenus()
     addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
     QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
     connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
-    addMenu(tr("&View"), {"cm_QuickView", nullptr, "cm_ShowSysFiles"});
+    addMenu(tr("&View"), {"cm_QuickView", nullptr, "cm_ShowSysFiles", "cm_ShowFolderSizes"});
     addMenu(tr("&Help"), {"cm_About"});
 }
 
@@ -292,6 +295,14 @@ void MainWindow::saveFavouritesNow() const
     if (s.status() != QSettings::NoError) {
         qWarning("Could not save favourites to %s", qPrintable(s.fileName()));
     }
+}
+
+void MainWindow::setShowFolderSizes(bool show)
+{
+    m_showFolderSizes = show;
+    m_commands->action(QStringLiteral("cm_ShowFolderSizes"))->setChecked(show);
+    m_left->setShowFolderSizes(show);
+    m_right->setShowFolderSizes(show);
 }
 
 void MainWindow::setShowHidden(bool show)
@@ -670,6 +681,7 @@ void MainWindow::loadSettings()
     }
 
     setShowHidden(s.value(QStringLiteral("view/showHidden"), false).toBool());
+    setShowFolderSizes(s.value(QStringLiteral("view/folderSizes"), false).toBool());
     m_favourites = loadFavourites(s);
 
     for (PanelTabs *side : {m_left, m_right}) {
@@ -703,6 +715,7 @@ void MainWindow::saveSettings() const
     s.setValue(QStringLiteral("window/geometry"), saveGeometry());
     s.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
     s.setValue(QStringLiteral("view/showHidden"), m_showHidden);
+    s.setValue(QStringLiteral("view/folderSizes"), m_showFolderSizes);
     s.setValue(QStringLiteral("activePanel"),
                activeSide() == m_right ? QStringLiteral("right") : QStringLiteral("left"));
 

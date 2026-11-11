@@ -44,6 +44,7 @@ private:
     void saveFavouritesNow() const;
     void setActivePanel(FilePanel *panel);
     void setShowHidden(bool show);
+    void setShowFolderSizes(bool show);
     PanelTabs *activeSide() const;
     FilePanel *otherPanel() const;
     // Puts the drive and navigation row above a side's tabs.
@@ -92,6 +93,7 @@ private:
     // Each side's operation queue, shown as a progress strip under its tabs.
     QHash<PanelTabs *, OperationQueue *> m_queues;
     bool m_showHidden = false;
+    bool m_showFolderSizes = false;
 };
 
 } // namespace bifrons

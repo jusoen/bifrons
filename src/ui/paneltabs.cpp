@@ -479,6 +479,7 @@ void PanelTabs::moveTabTo(FilePanel *panel, PanelTabs *target, int index)
 void PanelTabs::adoptPanel(FilePanel *panel, int index)
 {
     panel->setShowHidden(m_showHidden);
+    panel->setShowFolderSizes(m_showFolderSizes);
     connect(panel, &FilePanel::activated, this, &PanelTabs::panelActivated);
     connect(panel, &FilePanel::switchPanelRequested, this, &PanelTabs::switchPanelRequested);
     connect(panel, &FilePanel::pathChanged, this, [this, panel] { updateTitle(panel); });
@@ -568,6 +569,14 @@ void PanelTabs::setShowHidden(bool show)
     }
 }
 
+void PanelTabs::setShowFolderSizes(bool show)
+{
+    m_showFolderSizes = show;
+    for (FilePanel *panel : panels()) {
+        panel->setShowFolderSizes(show);
+    }
+}
+
 QList<TabState> PanelTabs::state() const
 {
     QList<TabState> tabs;
@@ -599,6 +608,7 @@ FilePanel *PanelTabs::addPanel(int index, const TabState &state)
     auto *panel = new FilePanel(m_source, this);
     panel->setSort(state.sortColumn, state.sortOrder);
     panel->setShowHidden(m_showHidden);
+    panel->setShowFolderSizes(m_showFolderSizes);
     adoptPanel(panel, index);
     panel->restorePath(state.path);
     return panel;

@@ -17,6 +17,8 @@
 #include <QTableView>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QPointer>
+#include <QThreadPool>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "core/filemask.h"
@@ -35,6 +37,47 @@ constexpr int RefreshDelayMs = 250;
 constexpr int MaxRedirects = 3;
 constexpr int MaxHistory = 50;
 constexpr int ConnectingDelayMs = 300;
+// Folder size counts share a small pool so they never starve folder listing.
+constexpr int FolderSizeThreads = 2;
+
+QThreadPool &folderSizePool()
+{
+    static QThreadPool *pool = [] {
+        auto *p = new QThreadPool(qApp);
+        p->setMaxThreadCount(FolderSizeThreads);
+        return p;
+    }();
+    return *pool;
+}
+
+// Total size of the files below dir. Symlinks and junctions are not followed, so a junction that
+// points back up the tree (as in Windows user profiles) cannot loop. Returns -1 when cancelled.
+qint64 folderSize(const QString &dir, const std::atomic<bool> &cancel)
+{
+    qint64 total = 0;
+    QStringList pending{dir};
+    // Bounded by the tree: each folder is visited once because links are never followed.
+    while (!pending.isEmpty()) {
+        if (cancel.load()) {
+            return -1;
+        }
+        const QFileInfoList entries = QDir(pending.takeLast())
+                                          .entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden
+                                                             | QDir::System,
+                                                         QDir::NoSort);
+        for (const QFileInfo &info : entries) {
+            if (info.isSymLink() || info.isJunction()) {
+                continue;
+            }
+            if (info.isDir()) {
+                pending.append(info.absoluteFilePath());
+            } else {
+                total += info.size();
+            }
+        }
+    }
+    return total;
+}
 
 } // namespace
 
@@ -311,6 +354,7 @@ void FilePanel::enterLocation(const QString &loaded, const FileItemList &items, 
     m_keepCursor = sameDir;
     m_model->setItems(items, showParent, sameDir);
     m_keepCursor = true;
+    startFolderSizes();
     emit navigationChanged();
 }
 
@@ -369,6 +413,82 @@ void FilePanel::focusView()
 void FilePanel::setShowHidden(bool show)
 {
     m_model->setShowHidden(show);
+}
+
+void FilePanel::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    // Figures already shown stay until the recount replaces them.
+    startFolderSizes();
+}
+
+void FilePanel::hideEvent(QHideEvent *event)
+{
+    QWidget::hideEvent(event);
+    stopFolderSizes();
+}
+
+FilePanel::~FilePanel()
+{
+    stopFolderSizes();
+}
+
+void FilePanel::setShowFolderSizes(bool show)
+{
+    if (show == m_showFolderSizes) {
+        return;
+    }
+    m_showFolderSizes = show;
+    if (show) {
+        startFolderSizes();
+    } else {
+        stopFolderSizes();
+        m_model->clearDirSizes();
+    }
+}
+
+void FilePanel::stopFolderSizes()
+{
+    if (m_sizeCancel) {
+        m_sizeCancel->store(true);
+        m_sizeCancel.reset();
+    }
+    ++m_sizeGeneration;
+}
+
+void FilePanel::startFolderSizes()
+{
+    stopFolderSizes();
+    // Search results span many folders, and an unreachable share would only time out.
+    if (!m_showFolderSizes || !isVisible() || isShowingResults() || m_unreachable || m_path.isEmpty()) {
+        return;
+    }
+    QList<QPair<QString, QString>> folders;
+    for (const QString &name : m_model->dirNames()) {
+        folders.append({name, m_source->childPath(m_path, name)});
+    }
+    if (folders.isEmpty()) {
+        return;
+    }
+    auto cancel = std::make_shared<std::atomic<bool>>(false);
+    m_sizeCancel = cancel;
+    const quint64 generation = m_sizeGeneration;
+    // Made here on the UI thread, and only read there, so it is safe if the panel is deleted meanwhile.
+    const QPointer<FilePanel> guard(this);
+    folderSizePool().start([folders, cancel, generation, guard] {
+        for (const auto &folder : folders) {
+            const qint64 size = folderSize(folder.second, *cancel);
+            if (size < 0) {
+                return;
+            }
+            const QString name = folder.first;
+            QMetaObject::invokeMethod(qApp, [guard, generation, name, size] {
+                if (guard != nullptr && guard->m_sizeGeneration == generation) {
+                    guard->m_model->setDirSize(name, size);
+                }
+            }, Qt::QueuedConnection);
+        }
+    });
 }
 
 SortColumn FilePanel::sortColumn() const

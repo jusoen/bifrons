@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QWidget>
 
+#include <atomic>
 #include <memory>
 
 #include "core/filesort.h"
@@ -26,6 +27,7 @@ class FilePanel : public QWidget
 
 public:
     explicit FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent = nullptr);
+    ~FilePanel() override;
 
     QString path() const;
     // Lists a local path in the background, then selects selectName if given.
@@ -64,6 +66,8 @@ public:
     void openTerminalHere();
 
     void setShowHidden(bool show);
+    // Counts each subfolder's total size in the background and shows it in the Size column.
+    void setShowFolderSizes(bool show);
     void markByMaskPrompt(bool mark);
     void markAll(bool mark);
 
@@ -83,6 +87,9 @@ signals:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    // Only the tab on show counts folder sizes, so hidden tabs never hold up the visible ones.
+    void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
 
 private:
     void loadFrom(std::shared_ptr<const FileSource> source, const QString &path, const QString &selectName);
@@ -96,6 +103,9 @@ private:
     void showMessage(const QString &text);
     void enterLocation(const QString &path, const FileItemList &items, bool reachable);
     void updatePathBar();
+    // Cancels any count in progress, then counts the current folder's subfolders if enabled.
+    void startFolderSizes();
+    void stopFolderSizes();
     void recordHistory(const QString &path);
     void goToHistory(int index);
 
@@ -125,6 +135,11 @@ private:
     int m_historyTarget = -1;
     int m_redirects = 0;
     bool m_networkPending = false;
+    bool m_showFolderSizes = false;
+    // Set to stop the running folder size count. Replaced for each new count.
+    std::shared_ptr<std::atomic<bool>> m_sizeCancel;
+    // Results from an older count are dropped.
+    quint64 m_sizeGeneration = 0;
     bool m_unreachable = false;
     bool m_keepCursor = true;
     bool m_active = false;
