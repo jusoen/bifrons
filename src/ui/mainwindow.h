@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QPointer>
 
 #include <memory>
 
@@ -15,6 +16,7 @@ class CommandRegistry;
 class FilePanel;
 class LocalFileSource;
 class OperationRunner;
+class PanelTabs;
 
 // Top-level window with two side-by-side panels.
 class MainWindow : public QMainWindow
@@ -30,6 +32,7 @@ protected:
 private:
     void createCommands();
     void setActivePanel(FilePanel *panel);
+    PanelTabs *activeSide() const;
     FilePanel *otherPanel() const;
 
     void cmCopy();
@@ -50,9 +53,10 @@ private:
     std::shared_ptr<LocalFileSource> m_source;
     CommandRegistry *m_commands = nullptr;
     QSplitter *m_splitter = nullptr;
-    FilePanel *m_left = nullptr;
-    FilePanel *m_right = nullptr;
-    FilePanel *m_active = nullptr;
+    PanelTabs *m_left = nullptr;
+    PanelTabs *m_right = nullptr;
+    PanelTabs *m_activeSide = nullptr;
+    QPointer<FilePanel> m_active;
     OperationRunner *m_runner = nullptr;
     bool m_closePending = false;
 };

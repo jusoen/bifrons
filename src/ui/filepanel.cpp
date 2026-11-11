@@ -196,6 +196,9 @@ void FilePanel::onLoadFinished()
     m_path = loaded;
     m_pathEdit->setText(m_source->displayPath(m_path));
     updateDriveCombo();
+    if (!sameDir) {
+        emit pathChanged(m_path);
+    }
 
     const bool showParent = !m_source->parentPath(m_path).isEmpty();
     m_keepCursor = sameDir;

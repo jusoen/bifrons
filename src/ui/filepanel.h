@@ -47,6 +47,7 @@ public:
 signals:
     void activated(dcpp::FilePanel *panel);
     void switchPanelRequested();
+    void pathChanged(const QString &path);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

@@ -34,6 +34,8 @@ qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
     ui/mainwindow.cpp
     ui/operationrunner.h
     ui/operationrunner.cpp
+    ui/paneltabs.h
+    ui/paneltabs.cpp
 )
 target_link_libraries(dcpp PRIVATE dcpp_core Qt6::Widgets Qt6::Concurrent)
 

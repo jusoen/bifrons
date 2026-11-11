@@ -15,12 +15,16 @@
 #include "ui/commandregistry.h"
 #include "ui/filepanel.h"
 #include "ui/operationrunner.h"
+#include "ui/paneltabs.h"
+
+#include <algorithm>
 
 namespace dcpp {
 
 namespace {
 
 constexpr int MaxErrorsShown = 20;
+constexpr int MaxTabsRestored = 100;
 
 QSettings settingsStore()
 {
@@ -33,8 +37,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_source(std::make_shared<LocalFileSource>())
 {
-    m_left = new FilePanel(m_source, this);
-    m_right = new FilePanel(m_source, this);
+    m_left = new PanelTabs(m_source, this);
+    m_right = new PanelTabs(m_source, this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->addWidget(m_left);
     m_splitter->addWidget(m_right);
@@ -46,9 +50,9 @@ MainWindow::MainWindow(QWidget *parent)
     layout->addWidget(m_splitter, 1);
     setCentralWidget(central);
 
-    for (FilePanel *panel : {m_left, m_right}) {
-        connect(panel, &FilePanel::activated, this, &MainWindow::setActivePanel);
-        connect(panel, &FilePanel::switchPanelRequested, this, [this] {
+    for (PanelTabs *side : {m_left, m_right}) {
+        connect(side, &PanelTabs::panelActivated, this, &MainWindow::setActivePanel);
+        connect(side, &PanelTabs::switchPanelRequested, this, [this] {
             otherPanel()->focusView();
         });
     }
@@ -72,18 +76,35 @@ void MainWindow::createCommands()
     m_commands->add(QStringLiteral("cm_Delete"), tr("Delete"), Qt::Key_F8, [this] { cmDelete(); });
     m_commands->add(QStringLiteral("cm_Refresh"), tr("Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
     m_commands->add(QStringLiteral("cm_Exit"), tr("Exit"), Qt::ALT | Qt::Key_X, [this] { close(); });
+    m_commands->add(QStringLiteral("cm_NewTab"), tr("New Tab"), Qt::CTRL | Qt::Key_T,
+                    [this] { activeSide()->newTab(); });
+    m_commands->add(QStringLiteral("cm_CloseTab"), tr("Close Tab"), Qt::CTRL | Qt::Key_W,
+                    [this] { activeSide()->closeCurrentTab(); });
+    m_commands->add(QStringLiteral("cm_NextTab"), tr("Next Tab"), Qt::CTRL | Qt::Key_Tab,
+                    [this] { activeSide()->nextTab(); });
+    m_commands->add(QStringLiteral("cm_PrevTab"), tr("Previous Tab"), Qt::CTRL | Qt::SHIFT | Qt::Key_Tab,
+                    [this] { activeSide()->previousTab(); });
+}
+
+PanelTabs *MainWindow::activeSide() const
+{
+    return m_activeSide == m_right ? m_right : m_left;
 }
 
 void MainWindow::setActivePanel(FilePanel *panel)
 {
     m_active = panel;
-    m_left->setActive(panel == m_left);
-    m_right->setActive(panel == m_right);
+    m_activeSide = m_right->indexOf(panel) >= 0 ? m_right : m_left;
+    for (PanelTabs *side : {m_left, m_right}) {
+        for (FilePanel *p : side->panels()) {
+            p->setActive(p == panel);
+        }
+    }
 }
 
 FilePanel *MainWindow::otherPanel() const
 {
-    return m_active == m_left ? m_right : m_left;
+    return (activeSide() == m_left ? m_right : m_left)->currentPanel();
 }
 
 void MainWindow::cmCopy()
@@ -176,8 +197,8 @@ void MainWindow::cmDelete()
 
 void MainWindow::cmRefresh()
 {
-    m_left->reload();
-    m_right->reload();
+    m_left->currentPanel()->reload();
+    m_right->currentPanel()->reload();
 }
 
 void MainWindow::runOperation(FileOperation *op, const QString &title)
@@ -208,7 +229,7 @@ void MainWindow::onOperationFinished(const FileOperation::Result &result)
         }
         QMessageBox::warning(this, tr("Some items were not processed"), shown.join(QLatin1Char('\n')));
     }
-    m_active->focusView();
+    activeSide()->currentPanel()->focusView();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -237,26 +258,29 @@ void MainWindow::loadSettings()
         (void)m_splitter->restoreState(split);
     }
 
-    const QString home = QDir::homePath();
-    const struct
-    {
-        FilePanel *panel;
-        QString key;
-    } panels[] = {{m_left, QStringLiteral("left")}, {m_right, QStringLiteral("right")}};
-    for (const auto &p : panels) {
-        s.beginGroup(p.key);
-        const int column = s.value(QStringLiteral("sortColumn"), 0).toInt();
-        const int order = s.value(QStringLiteral("sortOrder"), 0).toInt();
-        const bool columnValid = column >= 0 && column < static_cast<int>(SortColumn::Count);
-        p.panel->setSort(columnValid ? static_cast<SortColumn>(column) : SortColumn::Name,
-                         order == 1 ? Qt::DescendingOrder : Qt::AscendingOrder);
-        p.panel->setPath(LocalFileSource::nearestExistingDir(s.value(QStringLiteral("path"), home).toString()));
+    for (PanelTabs *side : {m_left, m_right}) {
+        s.beginGroup(side == m_left ? QStringLiteral("left") : QStringLiteral("right"));
+        QList<TabState> tabs;
+        const int n = s.beginReadArray(QStringLiteral("tabs"));
+        for (int i = 0; i < std::min(n, MaxTabsRestored); ++i) {
+            s.setArrayIndex(i);
+            const int column = s.value(QStringLiteral("sortColumn"), 0).toInt();
+            const bool columnValid = column >= 0 && column < static_cast<int>(SortColumn::Count);
+            TabState tab;
+            tab.path = s.value(QStringLiteral("path")).toString();
+            tab.sortColumn = columnValid ? static_cast<SortColumn>(column) : SortColumn::Name;
+            tab.sortOrder = s.value(QStringLiteral("sortOrder"), 0).toInt() == 1 ? Qt::DescendingOrder
+                                                                                  : Qt::AscendingOrder;
+            tabs.append(tab);
+        }
+        s.endArray();
+        side->restore(tabs, s.value(QStringLiteral("currentTab"), 0).toInt());
         s.endGroup();
     }
 
-    FilePanel *active = s.value(QStringLiteral("activePanel")).toString() == QLatin1String("right") ? m_right : m_left;
-    setActivePanel(active);
-    active->focusView();
+    PanelTabs *side = s.value(QStringLiteral("activePanel")).toString() == QLatin1String("right") ? m_right : m_left;
+    setActivePanel(side->currentPanel());
+    side->currentPanel()->focusView();
 }
 
 void MainWindow::saveSettings() const
@@ -264,18 +288,22 @@ void MainWindow::saveSettings() const
     QSettings s = settingsStore();
     s.setValue(QStringLiteral("window/geometry"), saveGeometry());
     s.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
-    s.setValue(QStringLiteral("activePanel"), m_active == m_right ? QStringLiteral("right") : QStringLiteral("left"));
+    s.setValue(QStringLiteral("activePanel"),
+               activeSide() == m_right ? QStringLiteral("right") : QStringLiteral("left"));
 
-    const struct
-    {
-        const FilePanel *panel;
-        QString key;
-    } panels[] = {{m_left, QStringLiteral("left")}, {m_right, QStringLiteral("right")}};
-    for (const auto &p : panels) {
-        s.beginGroup(p.key);
-        s.setValue(QStringLiteral("path"), p.panel->path());
-        s.setValue(QStringLiteral("sortColumn"), static_cast<int>(p.panel->sortColumn()));
-        s.setValue(QStringLiteral("sortOrder"), p.panel->sortOrder() == Qt::DescendingOrder ? 1 : 0);
+    for (const PanelTabs *side : {m_left, m_right}) {
+        s.beginGroup(side == m_left ? QStringLiteral("left") : QStringLiteral("right"));
+        s.remove(QString());
+        const QList<TabState> tabs = side->state();
+        s.beginWriteArray(QStringLiteral("tabs"), static_cast<int>(tabs.size()));
+        for (int i = 0; i < tabs.size(); ++i) {
+            s.setArrayIndex(i);
+            s.setValue(QStringLiteral("path"), tabs.at(i).path);
+            s.setValue(QStringLiteral("sortColumn"), static_cast<int>(tabs.at(i).sortColumn));
+            s.setValue(QStringLiteral("sortOrder"), tabs.at(i).sortOrder == Qt::DescendingOrder ? 1 : 0);
+        }
+        s.endArray();
+        s.setValue(QStringLiteral("currentTab"), side->currentIndex());
         s.endGroup();
     }
     s.sync();
