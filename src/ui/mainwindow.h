@@ -5,10 +5,12 @@
 
 #include <memory>
 
+#include "core/favourites.h"
 #include "core/fileoperation.h"
 #include "core/localfileoperation.h"
 #include "core/renameengine.h"
 
+class QMenu;
 class QSplitter;
 
 namespace dcpp {
@@ -34,6 +36,8 @@ protected:
 private:
     void createCommands();
     void createMenus();
+    void fillFavouritesMenu(QMenu *menu);
+    void saveFavouritesNow() const;
     void setActivePanel(FilePanel *panel);
     void setShowHidden(bool show);
     PanelTabs *activeSide() const;
@@ -66,6 +70,7 @@ private:
     OperationRunner *m_runner = nullptr;
     FindDialog *m_find = nullptr;
     QList<RenameStep> m_lastRename;
+    FavouriteList m_favourites;
     bool m_closePending = false;
     bool m_showHidden = false;
 };

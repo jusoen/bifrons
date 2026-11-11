@@ -4,12 +4,14 @@
 #include <QDir>
 #include <QInputDialog>
 #include <QAction>
+#include <QApplication>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QStyle>
 #include <QVBoxLayout>
 
 #include "core/appinfo.h"
@@ -18,6 +20,7 @@
 #include "core/transfer.h"
 #include "ui/commandregistry.h"
 #include "ui/filepanel.h"
+#include "ui/favouritesdialog.h"
 #include "ui/finddialog.h"
 #include "ui/multirenamedialog.h"
 #include "ui/operationrunner.h"
@@ -95,6 +98,11 @@ void MainWindow::createCommands()
                     [this] { m_active->markAll(true); });
     m_commands->add(QStringLiteral("cm_MarkUnmarkAll"), tr("U&nselect All"), QKeySequence(),
                     [this] { m_active->markAll(false); });
+    m_commands->add(QStringLiteral("cm_DirHotList"), tr("&Favourites…"), Qt::CTRL | Qt::Key_D, [this] {
+        QMenu menu(this);
+        fillFavouritesMenu(&menu);
+        menu.exec(m_active->mapToGlobal(QPoint(0, 0)));
+    });
     m_commands->add(QStringLiteral("cm_About"), tr("&About DC++"), QKeySequence(), [this] {
         QMessageBox::about(this, tr("About %1").arg(appDisplayName()),
                            tr("%1 %2\n\nA dual-pane file manager inspired by Double Commander.\nMIT licence.")
@@ -132,8 +140,58 @@ void MainWindow::createMenus()
     addMenu(tr("&Mark"), {"cm_MarkPlus", "cm_MarkMinus", nullptr, "cm_MarkMarkAll", "cm_MarkUnmarkAll"});
     addMenu(tr("&Commands"), {"cm_Search", nullptr, "cm_Refresh"});
     addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
+    QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
+    connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
     addMenu(tr("&View"), {"cm_ShowSysFiles"});
     addMenu(tr("&Help"), {"cm_About"});
+}
+
+void MainWindow::fillFavouritesMenu(QMenu *menu)
+{
+    menu->clear();
+    for (const Favourite &fav : std::as_const(m_favourites)) {
+        QString label = fav.name;
+        label.replace(QLatin1Char('&'), QStringLiteral("&&"));
+        QAction *action = menu->addAction(QApplication::style()->standardIcon(QStyle::SP_DirIcon), label);
+        action->setToolTip(QDir::toNativeSeparators(fav.path));
+        const QString path = fav.path;
+        connect(action, &QAction::triggered, this, [this, path] {
+            m_active->setPath(path);
+            m_active->focusView();
+        });
+    }
+    if (m_favourites.isEmpty()) {
+        menu->addAction(tr("(No favourites yet)"))->setEnabled(false);
+    }
+    menu->setToolTipsVisible(true);
+    menu->addSeparator();
+
+    const QString current = m_active->persistentPath();
+    const bool listed = indexOfFavourite(m_favourites, current) >= 0;
+    QAction *add = menu->addAction(listed ? tr("Current folder is a favourite") : tr("&Add current folder"));
+    add->setEnabled(!listed);
+    connect(add, &QAction::triggered, this, [this, current] {
+        if (addFavourite(m_favourites, current)) {
+            saveFavouritesNow();
+        }
+    });
+    connect(menu->addAction(tr("&Organise favourites…")), &QAction::triggered, this, [this] {
+        FavouritesDialog dialog(m_favourites, this);
+        if (dialog.exec() == QDialog::Accepted) {
+            m_favourites = dialog.favourites();
+            saveFavouritesNow();
+        }
+    });
+}
+
+void MainWindow::saveFavouritesNow() const
+{
+    QSettings s = settingsStore();
+    saveFavourites(s, m_favourites);
+    s.sync();
+    if (s.status() != QSettings::NoError) {
+        qWarning("Could not save favourites to %s", qPrintable(s.fileName()));
+    }
 }
 
 void MainWindow::setShowHidden(bool show)
@@ -382,6 +440,7 @@ void MainWindow::loadSettings()
     }
 
     setShowHidden(s.value(QStringLiteral("view/showHidden"), false).toBool());
+    m_favourites = loadFavourites(s);
 
     for (PanelTabs *side : {m_left, m_right}) {
         s.beginGroup(side == m_left ? QStringLiteral("left") : QStringLiteral("right"));

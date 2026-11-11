@@ -2,6 +2,8 @@
 add_library(dcpp_core STATIC
     core/appinfo.h
     core/appinfo.cpp
+    core/favourites.h
+    core/favourites.cpp
     core/fileitem.h
     core/fileitem.cpp
     core/filemask.h
@@ -32,6 +34,8 @@ qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
     main.cpp
     ui/commandregistry.h
     ui/commandregistry.cpp
+    ui/favouritesdialog.h
+    ui/favouritesdialog.cpp
     ui/filelistmodel.h
     ui/filelistmodel.cpp
     ui/finddialog.h
