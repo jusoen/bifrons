@@ -8,8 +8,8 @@
   <!-- Transfer arrows across the split -->
   <g fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
     <path d="M62 128 h132"/>
-    <path d="M172 110 l22 18 l-22 18"/>
-    <path d="M194 176 h-132"/>
-    <path d="M84 158 l-22 18 l22 18"/>
+    <path d="M174 112 l20 16 l-20 16"/>
+    <path d="M194 166 h-132"/>
+    <path d="M82 150 l-20 16 l20 16"/>
   </g>
 </svg>

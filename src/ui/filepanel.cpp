@@ -166,6 +166,11 @@ bool FilePanel::isShowingResults() const
     return m_source != m_local;
 }
 
+std::shared_ptr<const SearchResultFileSource> FilePanel::searchResults() const
+{
+    return isShowingResults() ? m_results : nullptr;
+}
+
 QString FilePanel::persistentPath() const
 {
     return isShowingResults() && m_results ? m_results->baseDir() : m_path;

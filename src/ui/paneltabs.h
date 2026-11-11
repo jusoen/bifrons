@@ -62,8 +62,10 @@ private:
     FilePanel *addPanel(int index, const TabState &state);
     void adoptPanel(FilePanel *panel, int index);
     void moveTabTo(FilePanel *panel, PanelTabs *target, int index);
+    void duplicateTab(const FilePanel *original, int index);
+    void activateAfterDrop(FilePanel *panel);
     void startTabDrag(FilePanel *panel);
-    bool acceptsTabDrop(const QMimeData *mime) const;
+    bool acceptsTabDrop(const QMimeData *mime, bool copy) const;
 
     // The tab being dragged between sides. Drags never cross processes.
     static QPointer<PanelTabs> s_dragSource;

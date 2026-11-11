@@ -35,6 +35,7 @@ public:
 
     void showSearchResults(std::shared_ptr<const SearchResultFileSource> results);
     bool isShowingResults() const;
+    std::shared_ptr<const SearchResultFileSource> searchResults() const;
     // A real folder to save and restore: the searched folder when showing results.
     QString persistentPath() const;
     // Full path of the entry under the cursor, empty on the ".." row.

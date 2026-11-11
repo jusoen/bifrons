@@ -1,6 +1,6 @@
 #include "ui/paneltabs.h"
 
-#include <QCoreApplication>
+#include <QApplication>
 #include <QDir>
 #include <QDrag>
 #include <QDragEnterEvent>
@@ -69,9 +69,20 @@ bool PanelTabs::eventFilter(QObject *watched, QEvent *event)
     }
     case QEvent::MouseMove: {
         const auto *mouse = static_cast<QMouseEvent *>(event);
+        if (!m_pressPanel || !(mouse->buttons() & Qt::LeftButton)) {
+            break;
+        }
+        const QPoint pos = mouse->position().toPoint();
         const QRect zone = tabBar()->rect().adjusted(-DragOutMargin, -DragOutMargin, DragOutMargin, DragOutMargin);
-        if (m_pressPanel && (mouse->buttons() & Qt::LeftButton) && !zone.contains(mouse->position().toPoint())) {
+        // With Ctrl held the drag is a duplicate, so start it at once instead of reordering in the bar.
+        const bool ctrlDrag = mouse->modifiers().testFlag(Qt::ControlModifier)
+            && (pos - m_pressPos).manhattanLength() >= QApplication::startDragDistance();
+        if (ctrlDrag || !zone.contains(pos)) {
             startTabDrag(m_pressPanel);
+            return true;
+        }
+        if (mouse->modifiers().testFlag(Qt::ControlModifier)) {
+            // Below the drag threshold: keep the bar from starting its own move.
             return true;
         }
         break;
@@ -111,21 +122,31 @@ void PanelTabs::startTabDrag(FilePanel *panel)
     drag.setPixmap(tabBar()->grab(tabBar()->tabRect(index)));
     s_dragSource = this;
     s_dragPanel = panel;
-    (void)drag.exec(Qt::MoveAction);
+    // The drop target does the work, so the reported action is not needed.
+    (void)drag.exec(Qt::MoveAction | Qt::CopyAction, Qt::MoveAction);
     s_dragSource = nullptr;
     s_dragPanel = nullptr;
 }
 
-bool PanelTabs::acceptsTabDrop(const QMimeData *mime) const
+bool PanelTabs::acceptsTabDrop(const QMimeData *mime, bool copy) const
 {
-    return mime->hasFormat(QLatin1String(TabMimeType)) && s_dragSource != nullptr && s_dragSource != this
-        && s_dragPanel != nullptr && s_dragSource->indexOf(s_dragPanel) >= 0;
+    // Moving onto the same side is the tab bar's job. Copying onto it duplicates.
+    return mime->hasFormat(QLatin1String(TabMimeType)) && s_dragSource != nullptr
+        && (copy || s_dragSource != this) && s_dragPanel != nullptr && s_dragSource->indexOf(s_dragPanel) >= 0;
 }
 
 void PanelTabs::dragEnterEvent(QDragEnterEvent *event)
 {
-    if (acceptsTabDrop(event->mimeData())) {
-        event->acceptProposedAction();
+    const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
+    if (acceptsTabDrop(event->mimeData(), copy)) {
+        event->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
+        event->accept();
+        return;
+    }
+    // Accept the enter anyway, so pressing Ctrl later re-evaluates in dragMoveEvent.
+    if (acceptsTabDrop(event->mimeData(), true)) {
+        event->setDropAction(Qt::IgnoreAction);
+        event->accept();
         return;
     }
     QTabWidget::dragEnterEvent(event);
@@ -133,16 +154,19 @@ void PanelTabs::dragEnterEvent(QDragEnterEvent *event)
 
 void PanelTabs::dragMoveEvent(QDragMoveEvent *event)
 {
-    if (acceptsTabDrop(event->mimeData())) {
-        event->acceptProposedAction();
+    const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
+    if (acceptsTabDrop(event->mimeData(), copy)) {
+        event->setDropAction(copy ? Qt::CopyAction : Qt::MoveAction);
+        event->accept();
         return;
     }
-    QTabWidget::dragMoveEvent(event);
+    event->ignore();
 }
 
 void PanelTabs::dropEvent(QDropEvent *event)
 {
-    if (!acceptsTabDrop(event->mimeData())) {
+    const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
+    if (!acceptsTabDrop(event->mimeData(), copy)) {
         QTabWidget::dropEvent(event);
         return;
     }
@@ -156,10 +180,35 @@ void PanelTabs::dropEvent(QDropEvent *event)
         }
     }
     if (index < 0) {
-        index = count();
+        index = s_dragSource == this ? indexOf(s_dragPanel) + 1 : count();
     }
-    s_dragSource->moveTabTo(s_dragPanel, this, index);
-    event->acceptProposedAction();
+    if (copy) {
+        duplicateTab(s_dragPanel, index);
+        event->setDropAction(Qt::CopyAction);
+    } else {
+        s_dragSource->moveTabTo(s_dragPanel, this, index);
+        event->setDropAction(Qt::MoveAction);
+    }
+    event->accept();
+}
+
+void PanelTabs::duplicateTab(const FilePanel *original, int index)
+{
+    FilePanel *panel = addPanel(index, {original->persistentPath(), original->sortColumn(), original->sortOrder()});
+    if (original->isShowingResults() && original->searchResults()) {
+        panel->showSearchResults(original->searchResults());
+    }
+    setCurrentWidget(panel);
+    activateAfterDrop(panel);
+}
+
+void PanelTabs::activateAfterDrop(FilePanel *panel)
+{
+    // Windows restores focus to the drag source when the drag ends, so re-assert it afterwards.
+    QTimer::singleShot(0, panel, [this, panel] {
+        panel->focusView();
+        emit panelActivated(panel);
+    });
 }
 
 void PanelTabs::moveTabTo(FilePanel *panel, PanelTabs *target, int index)
@@ -176,11 +225,7 @@ void PanelTabs::moveTabTo(FilePanel *panel, PanelTabs *target, int index)
     disconnect(panel, nullptr, this, nullptr);
     target->adoptPanel(panel, index);
     target->setCurrentWidget(panel);
-    // Windows restores focus to the drag source when the drag ends, so re-assert it afterwards.
-    QTimer::singleShot(0, panel, [target, panel] {
-        panel->focusView();
-        emit target->panelActivated(panel);
-    });
+    target->activateAfterDrop(panel);
 }
 
 void PanelTabs::adoptPanel(FilePanel *panel, int index)
