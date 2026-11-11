@@ -70,6 +70,8 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/paneltabs.cpp
     ui/paneltoolbar.h
     ui/paneltoolbar.cpp
+    ui/shellmenu.h
+    ui/shellmenu.cpp
     ui/pathbar.h
     ui/pathbar.cpp
     ui/terminal.h
@@ -80,6 +82,10 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/viewerwindow.cpp
 )
 target_link_libraries(bifrons PRIVATE bifrons_core Qt6::Widgets Qt6::Concurrent)
+if(WIN32)
+    # SetWindowSubclass, so shell context submenus (Send to, Open with) can draw themselves.
+    target_link_libraries(bifrons PRIVATE comctl32)
+endif()
 
 # Commands > Test Background Operation: writes and slowly copies scratch files to show background progress.
 option(BIFRONS_DEMO_OPERATION "Include the background operation test command" OFF)

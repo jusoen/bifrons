@@ -1,6 +1,8 @@
 #include "ui/mainwindow.h"
 
+#include <QClipboard>
 #include <QCloseEvent>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFrame>
 #include <QInputDialog>
@@ -32,6 +34,7 @@
 #include "ui/operationqueue.h"
 #include "ui/paneltabs.h"
 #include "ui/paneltoolbar.h"
+#include "ui/shellmenu.h"
 #include "ui/viewerwidget.h"
 #include "ui/viewerwindow.h"
 
@@ -126,6 +129,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     for (PanelTabs *side : {m_left, m_right}) {
         connect(side, &PanelTabs::panelActivated, this, &MainWindow::setActivePanel);
+        connect(side, &PanelTabs::contextMenuRequested, this, &MainWindow::showContextMenu);
         connect(side, &PanelTabs::switchPanelRequested, this, [this] {
             if (m_quickSide != nullptr) {
                 m_quickView->setFocus();
@@ -547,6 +551,58 @@ void MainWindow::runOperation(FileOperation *op, const QString &title)
         return;
     }
     queue->enqueue(op, title);
+}
+
+void MainWindow::showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem)
+{
+    if (panel == nullptr || anchor == nullptr) {
+        return;
+    }
+    setActivePanel(panel);
+    const auto command = [this](const char *name) {
+        return [this, name] {
+            if (QAction *action = m_commands->action(QLatin1String(name))) {
+                action->trigger();
+            }
+        };
+    };
+    const auto copyPaths = [](const QStringList &paths) {
+        return [paths] {
+            QStringList native;
+            for (const QString &path : paths) {
+                native.append(QDir::toNativeSeparators(path));
+            }
+            QGuiApplication::clipboard()->setText(native.join(QLatin1Char('\n')));
+        };
+    };
+
+    if (!onItem) {
+        const QString folder = panel->persistentPath();
+        showEntryMenu(anchor, localPos, {
+            {tr("New &Folder\tF7"), command("cm_MakeDir")},
+            {tr("Open &Terminal Here"), command("cm_RunTerm")},
+            {tr("&Refresh\tCtrl+R"), command("cm_Refresh")},
+            {QString(), {}},
+            {tr("Copy Folder &Path"), copyPaths({folder})},
+        });
+        return;
+    }
+
+    const QStringList paths = panel->selectedPaths();
+    const QList<MenuEntry> entries = {
+        {tr("&View\tF3"), command("cm_View")},
+        {tr("&Copy to Other Pane…\tF5"), command("cm_Copy")},
+        {tr("&Move to Other Pane…\tF6"), command("cm_Rename")},
+        {tr("Re&name…\tShift+F6"), command("cm_RenameOnly")},
+        {tr("&Delete\tF8"), command("cm_Delete")},
+        {QString(), {}},
+        {tr("Copy &Path"), copyPaths(paths)},
+    };
+    // The shell resolves paths on this thread, so skip it where that could wait on the network.
+    const bool shellSafe = panel->canOpenTerminal() && !panel->isShowingResults();
+    if (!shellSafe || !showShellContextMenu(anchor, localPos, paths, entries, command("cm_Delete"))) {
+        showEntryMenu(anchor, localPos, entries);
+    }
 }
 
 bool MainWindow::operationsBusy() const

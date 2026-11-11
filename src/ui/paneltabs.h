@@ -57,6 +57,7 @@ signals:
     void panelActivated(bifrons::FilePanel *panel);
     void switchPanelRequested();
     void currentItemChanged(bifrons::FilePanel *panel);
+    void contextMenuRequested(bifrons::FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem);
     void currentPanelChanged(bifrons::FilePanel *panel);
 
 protected:

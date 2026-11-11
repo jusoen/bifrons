@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QLocale>
 #include <QMessageBox>
+#include <QContextMenuEvent>
 #include <QMouseEvent>
 #include <QStyle>
 #include <QStyleFactory>
@@ -390,6 +391,30 @@ bool FilePanel::eventFilter(QObject *watched, QEvent *event)
     if (event->type() == QEvent::FocusIn) {
         emit activated(this);
         return QWidget::eventFilter(watched, event);
+    }
+    if ((watched == m_view || watched == m_view->viewport()) && event->type() == QEvent::ContextMenu) {
+        const auto *menuEvent = static_cast<QContextMenuEvent *>(event);
+        QWidget *anchor = m_view->viewport();
+        QPoint pos;
+        int row = -1;
+        if (menuEvent->reason() == QContextMenuEvent::Keyboard) {
+            // The menu key opens the menu on the cursor row.
+            row = m_view->currentIndex().row();
+            const QRect cell = m_view->visualRect(m_model->index(std::max(row, 0), 0));
+            pos = cell.isValid() ? cell.bottomLeft() : QPoint(0, 0);
+        } else {
+            pos = anchor->mapFromGlobal(menuEvent->globalPos());
+            row = m_view->rowAt(pos.y());
+        }
+        const FileItem *item = m_model->itemAt(row);
+        if (item != nullptr && !m_model->markedNames().contains(item->name)) {
+            // As in Explorer, right-clicking an unmarked entry acts on that entry alone.
+            m_model->markAll(false);
+            m_view->setCurrentIndex(m_model->index(row, 0));
+        }
+        m_view->setFocus();
+        emit contextMenuRequested(this, anchor, pos, item != nullptr);
+        return true;
     }
     if (watched == m_view->viewport() && event->type() == QEvent::MouseButtonPress) {
         const auto *mouse = static_cast<QMouseEvent *>(event);

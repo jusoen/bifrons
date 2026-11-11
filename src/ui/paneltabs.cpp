@@ -483,6 +483,7 @@ void PanelTabs::adoptPanel(FilePanel *panel, int index)
     connect(panel, &FilePanel::switchPanelRequested, this, &PanelTabs::switchPanelRequested);
     connect(panel, &FilePanel::pathChanged, this, [this, panel] { updateTitle(panel); });
     connect(panel, &FilePanel::currentItemChanged, this, [this, panel] { emit currentItemChanged(panel); });
+    connect(panel, &FilePanel::contextMenuRequested, this, &PanelTabs::contextMenuRequested);
     insertTab(std::clamp(index, 0, count()), panel, QString());
     updateTitle(panel);
 }

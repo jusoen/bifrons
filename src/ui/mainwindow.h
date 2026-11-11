@@ -67,6 +67,7 @@ private:
     void runOperation(FileOperation *op, const QString &title);
     void onOperationFinished(const FileOperation::Result &result);
     bool operationsBusy() const;
+    void showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem);
 
     void loadSettings();
     void saveSettings() const;

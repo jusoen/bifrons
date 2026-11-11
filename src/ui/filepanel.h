@@ -78,6 +78,8 @@ signals:
     void currentItemChanged();
     // Path, history or source changed after a load.
     void navigationChanged();
+    // Right-click or the menu key. localPos is in anchor. onItem is false for empty space and "..".
+    void contextMenuRequested(bifrons::FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
