@@ -39,6 +39,8 @@ public:
     QString persistentPath() const;
     // Full path of the entry under the cursor, empty on the ".." row.
     QString currentPath() const;
+    // Files (not folders) in display order, for next/previous in the viewer.
+    QStringList filePaths() const;
 
     // Marked entries, or the entry under the cursor when none are marked.
     QStringList selectedPaths() const;
@@ -60,6 +62,7 @@ signals:
     void activated(dcpp::FilePanel *panel);
     void switchPanelRequested();
     void pathChanged(const QString &path);
+    void currentItemChanged();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

@@ -35,8 +35,9 @@ PanelTabs::PanelTabs(std::shared_ptr<const FileSource> source, QWidget *parent)
     tabBar()->setFocusPolicy(Qt::NoFocus);
     tabBar()->setExpanding(false);
     tabBar()->setStyleSheet(QStringLiteral(
-        "QTabBar::tab { padding: 4px 12px; margin-right: 1px; border: none;"
-        "  border-bottom: 3px solid transparent; background: palette(window); color: palette(mid); }"
+        "QTabBar::tab { padding: 4px 12px; margin-right: 2px; border: 1px solid palette(mid);"
+        "  border-bottom: 3px solid transparent; border-top-left-radius: 3px; border-top-right-radius: 3px;"
+        "  background: palette(window); color: palette(mid); }"
         "QTabBar::tab:hover:!selected { color: palette(window-text); }"
         "QTabBar::tab:selected { font-weight: bold; background: palette(base); color: palette(window-text);"
         "  border-bottom: 3px solid palette(highlight); }"));
@@ -188,6 +189,7 @@ void PanelTabs::adoptPanel(FilePanel *panel, int index)
     connect(panel, &FilePanel::activated, this, &PanelTabs::panelActivated);
     connect(panel, &FilePanel::switchPanelRequested, this, &PanelTabs::switchPanelRequested);
     connect(panel, &FilePanel::pathChanged, this, [this, panel] { updateTitle(panel); });
+    connect(panel, &FilePanel::currentItemChanged, this, [this, panel] { emit currentItemChanged(panel); });
     insertTab(std::clamp(index, 0, count()), panel, QString());
     updateTitle(panel);
 }

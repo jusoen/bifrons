@@ -50,6 +50,7 @@ public:
 signals:
     void panelActivated(dcpp::FilePanel *panel);
     void switchPanelRequested();
+    void currentItemChanged(dcpp::FilePanel *panel);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

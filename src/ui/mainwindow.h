@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QPointer>
+#include <QTimer>
 
 #include <memory>
 
@@ -12,6 +13,7 @@
 
 class QMenu;
 class QSplitter;
+class QStackedWidget;
 
 namespace dcpp {
 
@@ -21,6 +23,7 @@ class FindDialog;
 class LocalFileSource;
 class OperationRunner;
 class PanelTabs;
+class ViewerWidget;
 
 // Top-level window with two side-by-side panels.
 class MainWindow : public QMainWindow
@@ -51,6 +54,9 @@ private:
     void cmRefresh();
 
     void cmSearch();
+    void cmView();
+    void cmQuickView();
+    void updateQuickView();
     void cmMultiRename();
     void transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &baseDir,
                   const QString &title, const QString &label, const QString &defaultDestination);
@@ -69,6 +75,12 @@ private:
     QPointer<FilePanel> m_active;
     OperationRunner *m_runner = nullptr;
     FindDialog *m_find = nullptr;
+    QStackedWidget *m_leftStack = nullptr;
+    QStackedWidget *m_rightStack = nullptr;
+    // Side currently replaced by the quick view, or nullptr when it is off.
+    QStackedWidget *m_quickSide = nullptr;
+    ViewerWidget *m_quickView = nullptr;
+    QTimer m_quickTimer;
     QList<RenameStep> m_lastRename;
     FavouriteList m_favourites;
     bool m_closePending = false;

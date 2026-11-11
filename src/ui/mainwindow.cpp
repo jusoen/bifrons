@@ -10,6 +10,7 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QStyle>
 #include <QVBoxLayout>
@@ -25,6 +26,8 @@
 #include "ui/multirenamedialog.h"
 #include "ui/operationrunner.h"
 #include "ui/paneltabs.h"
+#include "ui/viewerwidget.h"
+#include "ui/viewerwindow.h"
 
 #include <algorithm>
 
@@ -34,6 +37,8 @@ namespace {
 
 constexpr int MaxErrorsShown = 20;
 constexpr int MaxTabsRestored = 100;
+constexpr int QuickViewDelayMs = 120;
+constexpr qint64 QuickViewMaxBytes = 2 * 1024 * 1024;
 
 QSettings settingsStore()
 {
@@ -48,10 +53,18 @@ MainWindow::MainWindow(QWidget *parent)
 {
     m_left = new PanelTabs(m_source, this);
     m_right = new PanelTabs(m_source, this);
+    m_leftStack = new QStackedWidget(this);
+    m_leftStack->addWidget(m_left);
+    m_rightStack = new QStackedWidget(this);
+    m_rightStack->addWidget(m_right);
     m_splitter = new QSplitter(Qt::Horizontal, this);
-    m_splitter->addWidget(m_left);
-    m_splitter->addWidget(m_right);
+    m_splitter->addWidget(m_leftStack);
+    m_splitter->addWidget(m_rightStack);
     m_splitter->setChildrenCollapsible(false);
+
+    m_quickTimer.setSingleShot(true);
+    m_quickTimer.setInterval(QuickViewDelayMs);
+    connect(&m_quickTimer, &QTimer::timeout, this, &MainWindow::updateQuickView);
 
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
@@ -62,7 +75,16 @@ MainWindow::MainWindow(QWidget *parent)
     for (PanelTabs *side : {m_left, m_right}) {
         connect(side, &PanelTabs::panelActivated, this, &MainWindow::setActivePanel);
         connect(side, &PanelTabs::switchPanelRequested, this, [this] {
-            otherPanel()->focusView();
+            if (m_quickSide != nullptr) {
+                m_quickView->setFocus();
+            } else {
+                otherPanel()->focusView();
+            }
+        });
+        connect(side, &PanelTabs::currentItemChanged, this, [this](FilePanel *panel) {
+            if (m_quickSide != nullptr && panel == m_active) {
+                m_quickTimer.start();
+            }
         });
     }
 
@@ -98,6 +120,10 @@ void MainWindow::createCommands()
                     [this] { m_active->markAll(true); });
     m_commands->add(QStringLiteral("cm_MarkUnmarkAll"), tr("U&nselect All"), QKeySequence(),
                     [this] { m_active->markAll(false); });
+    m_commands->add(QStringLiteral("cm_View"), tr("&View File"), Qt::Key_F3, [this] { cmView(); });
+    m_commands->add(QStringLiteral("cm_QuickView"), tr("&Quick View"), Qt::CTRL | Qt::Key_Q,
+                    [this] { cmQuickView(); });
+    m_commands->action(QStringLiteral("cm_QuickView"))->setCheckable(true);
     m_commands->add(QStringLiteral("cm_DirHotList"), tr("&Favourites…"), Qt::CTRL | Qt::Key_D, [this] {
         QMenu menu(this);
         fillFavouritesMenu(&menu);
@@ -135,14 +161,14 @@ void MainWindow::createMenus()
             menu->addAction(action);
         }
     };
-    addMenu(tr("&File"), {"cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete", nullptr,
+    addMenu(tr("&File"), {"cm_View", nullptr, "cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete", nullptr,
                           "cm_MultiRename", nullptr, "cm_Exit"});
     addMenu(tr("&Mark"), {"cm_MarkPlus", "cm_MarkMinus", nullptr, "cm_MarkMarkAll", "cm_MarkUnmarkAll"});
     addMenu(tr("&Commands"), {"cm_Search", nullptr, "cm_Refresh"});
     addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
     QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
     connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
-    addMenu(tr("&View"), {"cm_ShowSysFiles"});
+    addMenu(tr("&View"), {"cm_QuickView", nullptr, "cm_ShowSysFiles"});
     addMenu(tr("&Help"), {"cm_About"});
 }
 
@@ -215,6 +241,9 @@ void MainWindow::setActivePanel(FilePanel *panel)
         for (FilePanel *p : side->panels()) {
             p->setActive(p == panel);
         }
+    }
+    if (m_quickSide != nullptr) {
+        m_quickTimer.start();
     }
 }
 
@@ -316,6 +345,51 @@ void MainWindow::cmDelete()
         items.append({path, QString()});
     }
     runOperation(new LocalFileOperation(LocalFileOperation::Kind::Delete, items), tr("Delete"));
+}
+
+void MainWindow::cmView()
+{
+    const QString path = m_active->currentPath();
+    if (path.isEmpty() || QFileInfo(path).isDir()) {
+        return;
+    }
+    const QStringList files = m_active->filePaths();
+    const int index = static_cast<int>(files.indexOf(path));
+    auto *viewer = new ViewerWindow(index >= 0 ? files : QStringList{path}, std::max(index, 0), this);
+    viewer->show();
+}
+
+void MainWindow::cmQuickView()
+{
+    QAction *action = m_commands->action(QStringLiteral("cm_QuickView"));
+    if (m_quickSide != nullptr) {
+        m_quickSide->removeWidget(m_quickView);
+        m_quickView->hide();
+        m_quickSide->setCurrentIndex(0);
+        m_quickSide = nullptr;
+        m_quickTimer.stop();
+        action->setChecked(false);
+        m_active->focusView();
+        return;
+    }
+    if (m_quickView == nullptr) {
+        m_quickView = new ViewerWidget(QuickViewMaxBytes, this);
+        connect(m_quickView, &ViewerWidget::markdownLinkActivated, m_quickView, &ViewerWidget::showFile);
+        connect(m_quickView, &ViewerWidget::tabPressed, this, [this] { m_active->focusView(); });
+    }
+    m_quickSide = activeSide() == m_left ? m_rightStack : m_leftStack;
+    m_quickSide->addWidget(m_quickView);
+    m_quickSide->setCurrentWidget(m_quickView);
+    action->setChecked(true);
+    updateQuickView();
+    m_active->focusView();
+}
+
+void MainWindow::updateQuickView()
+{
+    if (m_quickSide != nullptr) {
+        m_quickView->showFile(m_active->currentPath());
+    }
 }
 
 void MainWindow::cmMultiRename()

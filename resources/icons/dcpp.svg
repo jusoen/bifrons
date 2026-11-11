@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Left half: back panel with tab, then front body -->
+  <path d="M30 58 h58 l16 18 h16 v136 h-82 a8 8 0 0 1 -8 -8 v-138 a8 8 0 0 1 8 -8 z" fill="#1d4ed8"/>
+  <path d="M22 100 a10 10 0 0 1 10 -10 h88 v122 h-88 a10 10 0 0 1 -10 -10 z" fill="#3b82f6"/>
+  <!-- Right half -->
+  <path d="M136 76 h82 a8 8 0 0 1 8 8 v120 a8 8 0 0 1 -8 8 h-82 z" fill="#0f766e"/>
+  <path d="M136 90 h88 a10 10 0 0 1 10 10 v102 a10 10 0 0 1 -10 10 h-88 z" fill="#14b8a6"/>
+  <!-- Transfer arrows across the split -->
+  <g fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M62 128 h132"/>
+    <path d="M172 110 l22 18 l-22 18"/>
+    <path d="M194 176 h-132"/>
+    <path d="M84 158 l-22 18 l22 18"/>
+  </g>
+</svg>

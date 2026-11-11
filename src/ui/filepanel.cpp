@@ -126,6 +126,7 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
         focusView();
     });
     connect(m_model, &FileListModel::marksChanged, this, &FilePanel::updateStatus);
+    connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this, &FilePanel::currentItemChanged);
     connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
         m_cursorBeforeReset = currentName();
     });
@@ -174,6 +175,18 @@ QString FilePanel::currentPath() const
 {
     const QString name = currentName();
     return name.isEmpty() ? QString() : m_source->childPath(m_path, name);
+}
+
+QStringList FilePanel::filePaths() const
+{
+    QStringList paths;
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        const FileItem *item = m_model->itemAt(row);
+        if (item != nullptr && !item->isDir) {
+            paths.append(m_source->childPath(m_path, item->name));
+        }
+    }
+    return paths;
 }
 
 void FilePanel::loadFrom(std::shared_ptr<const FileSource> source, const QString &path, const QString &selectName)

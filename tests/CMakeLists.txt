@@ -12,6 +12,7 @@ function(dcpp_add_test name)
 endfunction()
 
 dcpp_add_test(tst_appinfo)
+dcpp_add_test(tst_preview)
 dcpp_add_test(tst_favourites)
 dcpp_add_test(tst_filemask)
 dcpp_add_test(tst_filesort)
