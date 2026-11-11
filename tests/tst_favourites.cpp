@@ -2,7 +2,7 @@
 
 #include "core/favourites.h"
 
-using namespace dcpp;
+using namespace bifrons;
 
 class TestFavourites : public QObject
 {

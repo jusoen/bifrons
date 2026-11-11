@@ -7,7 +7,7 @@
 
 #include <algorithm>
 
-namespace dcpp {
+namespace bifrons {
 
 FileListModel::FileListModel(QObject *parent)
     : QAbstractTableModel(parent)
@@ -331,4 +331,4 @@ qint64 FileListModel::totalSize() const
     return total;
 }
 
-} // namespace dcpp
+} // namespace bifrons

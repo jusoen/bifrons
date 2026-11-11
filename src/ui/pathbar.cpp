@@ -11,7 +11,7 @@
 #include <QStackedLayout>
 #include <QToolButton>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -269,4 +269,4 @@ bool PathBar::eventFilter(QObject *watched, QEvent *event)
     return QWidget::eventFilter(watched, event);
 }
 
-} // namespace dcpp
+} // namespace bifrons

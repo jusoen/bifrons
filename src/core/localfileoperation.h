@@ -6,9 +6,9 @@
 #include "core/fileoperation.h"
 #include "core/transfer.h"
 
-namespace dcpp {
+namespace bifrons {
 
-// Local copy, move or delete-to-trash. Copies go via "<target>.dcpp-part".
+// Local copy, move or delete-to-trash. Copies go via "<target>.bifrons-part".
 class LocalFileOperation final : public FileOperation
 {
     Q_OBJECT
@@ -86,4 +86,4 @@ private:
 // "name (2).ext" style alternative that does not exist yet, or empty if none found.
 QString uniqueTargetName(const QString &target);
 
-} // namespace dcpp
+} // namespace bifrons

@@ -7,7 +7,7 @@
 #include <atomic>
 #include <functional>
 
-namespace dcpp {
+namespace bifrons {
 
 // Base for long-running file work. run() executes on the calling thread.
 class FileOperation : public QObject
@@ -84,4 +84,4 @@ private:
     QString m_lastReported;
 };
 
-} // namespace dcpp
+} // namespace bifrons

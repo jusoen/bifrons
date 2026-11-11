@@ -3,7 +3,7 @@
 #include <QList>
 #include <QString>
 
-namespace dcpp {
+namespace bifrons {
 
 enum class TokenKind
 {
@@ -28,4 +28,4 @@ struct CodeToken
 QList<CodeToken> highlightCode(const QString &code, const QString &language);
 bool isKnownLanguage(const QString &language);
 
-} // namespace dcpp
+} // namespace bifrons

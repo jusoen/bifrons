@@ -2,7 +2,7 @@
 
 #include "core/filesort.h"
 
-using namespace dcpp;
+using namespace bifrons;
 
 namespace {
 

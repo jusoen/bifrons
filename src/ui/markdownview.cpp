@@ -16,7 +16,7 @@
 
 #include <algorithm>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -264,4 +264,4 @@ void MarkdownView::onAnchorClicked(const QUrl &url)
     (void)QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
-} // namespace dcpp
+} // namespace bifrons

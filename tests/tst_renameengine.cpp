@@ -2,7 +2,7 @@
 
 #include "core/renameengine.h"
 
-using namespace dcpp;
+using namespace bifrons;
 
 namespace {
 

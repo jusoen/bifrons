@@ -4,7 +4,7 @@
 
 #include "core/filesource.h"
 
-namespace dcpp {
+namespace bifrons {
 
 class LocalFileSource final : public FileSource
 {
@@ -27,4 +27,4 @@ public:
     static FileItem itemFromInfo(const QFileInfo &info);
 };
 
-} // namespace dcpp
+} // namespace bifrons

@@ -5,7 +5,7 @@
 
 #include "core/codehighlight.h"
 
-namespace dcpp {
+namespace bifrons {
 
 // GitHub light/dark colours, chosen from the current Windows colour scheme.
 struct CodeTheme
@@ -20,4 +20,4 @@ struct CodeTheme
 // Highlighter language for a file name, or empty if none applies.
 QString languageForFile(const QString &fileName);
 
-} // namespace dcpp
+} // namespace bifrons

@@ -7,7 +7,7 @@
 
 #include <algorithm>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -80,4 +80,4 @@ bool addFavourite(FavouriteList &list, const QString &path, const QString &name)
     return true;
 }
 
-} // namespace dcpp
+} // namespace bifrons

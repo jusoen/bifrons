@@ -3,7 +3,7 @@
 #include <QRegularExpression>
 #include <QStringList>
 
-namespace dcpp {
+namespace bifrons {
 
 QString applyLabelBreaks(const QString &markdown)
 {
@@ -49,4 +49,4 @@ QString headingSlug(const QString &heading)
     return slug;
 }
 
-} // namespace dcpp
+} // namespace bifrons

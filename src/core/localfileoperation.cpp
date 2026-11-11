@@ -7,14 +7,14 @@
 #include <algorithm>
 #include <utility>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
 constexpr qint64 ChunkSize = 1024 * 1024;
 constexpr int MaxUniqueNameTries = 9999;
-const QLatin1String PartSuffix(".dcpp-part");
-const QLatin1String BackupSuffix(".dcpp-bak");
+const QLatin1String PartSuffix(".bifrons-part");
+const QLatin1String BackupSuffix(".bifrons-bak");
 
 Qt::CaseSensitivity pathCase()
 {
@@ -512,4 +512,4 @@ LocalFileOperation::ErrorAction LocalFileOperation::onError(const QString &path,
     return ErrorAction::Abort;
 }
 
-} // namespace dcpp
+} // namespace bifrons

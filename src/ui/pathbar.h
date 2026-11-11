@@ -11,7 +11,7 @@ class QLineEdit;
 class QStackedLayout;
 class QToolButton;
 
-namespace dcpp {
+namespace bifrons {
 
 // One clickable segment of the breadcrumb trail.
 struct Crumb
@@ -75,4 +75,4 @@ private:
     bool m_active = false;
 };
 
-} // namespace dcpp
+} // namespace bifrons

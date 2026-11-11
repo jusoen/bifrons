@@ -3,7 +3,7 @@
 #include <QStringList>
 #include <QWidget>
 
-namespace dcpp {
+namespace bifrons {
 
 class ViewerWidget;
 
@@ -27,4 +27,4 @@ private:
     int m_index = 0;
 };
 
-} // namespace dcpp
+} // namespace bifrons

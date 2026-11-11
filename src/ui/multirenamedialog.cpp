@@ -16,7 +16,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -241,4 +241,4 @@ bool MultiRenameDialog::undoRequested() const
     return m_undoRequested;
 }
 
-} // namespace dcpp
+} // namespace bifrons

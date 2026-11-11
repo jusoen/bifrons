@@ -15,7 +15,7 @@ class QMenu;
 class QSplitter;
 class QStackedWidget;
 
-namespace dcpp {
+namespace bifrons {
 
 class CommandRegistry;
 class FilePanel;
@@ -89,4 +89,4 @@ private:
     bool m_showHidden = false;
 };
 
-} // namespace dcpp
+} // namespace bifrons

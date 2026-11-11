@@ -11,7 +11,7 @@
 
 #include "core/localfilesource.h"
 
-namespace dcpp {
+namespace bifrons {
 
 FavouritesDialog::FavouritesDialog(const FavouriteList &list, QWidget *parent)
     : QDialog(parent)
@@ -111,4 +111,4 @@ FavouriteList FavouritesDialog::favourites() const
     return list;
 }
 
-} // namespace dcpp
+} // namespace bifrons

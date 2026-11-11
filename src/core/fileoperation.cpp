@@ -2,7 +2,7 @@
 
 #include <QDir>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 constexpr qint64 ProgressIntervalMs = 50;
@@ -74,4 +74,4 @@ void FileOperation::recordSkip(const QString &path, const QString &message)
     m_result.errors.append(QStringLiteral("%1: %2").arg(QDir::toNativeSeparators(path), message));
 }
 
-} // namespace dcpp
+} // namespace bifrons

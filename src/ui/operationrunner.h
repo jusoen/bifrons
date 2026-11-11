@@ -12,7 +12,7 @@
 class QProgressDialog;
 class QWidget;
 
-namespace dcpp {
+namespace bifrons {
 
 // Runs a FileOperation on its own thread. Delete only after finished().
 class OperationRunner : public QObject
@@ -29,7 +29,7 @@ public:
     bool isRunning() const;
 
 signals:
-    void finished(const dcpp::FileOperation::Result &result);
+    void finished(const bifrons::FileOperation::Result &result);
 
 private:
     FileOperation::Answer askFromWorker(const FileOperation::Query &query);
@@ -50,4 +50,4 @@ private:
     std::optional<FileOperation::Answer> m_answer;
 };
 
-} // namespace dcpp
+} // namespace bifrons

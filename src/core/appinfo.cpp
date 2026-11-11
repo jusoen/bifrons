@@ -1,6 +1,6 @@
 #include "core/appinfo.h"
 
-namespace dcpp {
+namespace bifrons {
 
 QString appDisplayName()
 {
@@ -9,12 +9,12 @@ QString appDisplayName()
 
 QString appOrganisation()
 {
-    return QStringLiteral("dcpp");
+    return QStringLiteral("bifrons");
 }
 
 QString appVersion()
 {
-    return QStringLiteral(DCPP_VERSION);
+    return QStringLiteral(BIFRONS_VERSION);
 }
 
-} // namespace dcpp
+} // namespace bifrons

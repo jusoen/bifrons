@@ -5,7 +5,7 @@
 #include <QString>
 #include <QStringList>
 
-namespace dcpp {
+namespace bifrons {
 
 // DC-style masks: [N] [E] (ranges [N2-5] [N3-] [N4]), [C], [P], [Y][M][D][h][n][s], "[[" for '['.
 struct RenameOptions
@@ -72,4 +72,4 @@ RenameResult applyRenames(const QList<RenameItem> &items, const QStringList &new
 // Reverses a previous result's steps, with the same rollback guarantee.
 RenameResult undoRenames(const QList<RenameStep> &done);
 
-} // namespace dcpp
+} // namespace bifrons

@@ -6,7 +6,7 @@
 
 class QTableWidget;
 
-namespace dcpp {
+namespace bifrons {
 
 // Rename, reorder, edit and remove favourite folders. Changes apply only on OK.
 class FavouritesDialog : public QDialog
@@ -25,4 +25,4 @@ private:
     QTableWidget *m_table = nullptr;
 };
 
-} // namespace dcpp
+} // namespace bifrons

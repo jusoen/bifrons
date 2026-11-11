@@ -22,7 +22,7 @@
 #include "ui/codetheme.h"
 #include "ui/markdownview.h"
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -340,4 +340,4 @@ void ViewerWidget::showHex(const QByteArray &bytes, bool truncated)
                        .arg(truncated ? tr("  (start of file only)") : QString()));
 }
 
-} // namespace dcpp
+} // namespace bifrons

@@ -7,7 +7,7 @@
 class QComboBox;
 class QToolButton;
 
-namespace dcpp {
+namespace bifrons {
 
 class FilePanel;
 
@@ -35,4 +35,4 @@ private:
     QToolButton *m_terminal = nullptr;
 };
 
-} // namespace dcpp
+} // namespace bifrons

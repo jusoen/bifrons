@@ -2,7 +2,7 @@
 
 #include "core/filemask.h"
 
-using dcpp::FileMask;
+using bifrons::FileMask;
 
 class TestFileMask : public QObject
 {

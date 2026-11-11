@@ -4,7 +4,7 @@
 #include <QGuiApplication>
 #include <QStyleHints>
 
-namespace dcpp {
+namespace bifrons {
 
 CodeTheme CodeTheme::current()
 {
@@ -55,4 +55,4 @@ QString languageForFile(const QString &fileName)
     return isKnownLanguage(suffix) ? suffix : QString();
 }
 
-} // namespace dcpp
+} // namespace bifrons

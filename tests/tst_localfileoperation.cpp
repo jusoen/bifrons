@@ -2,7 +2,7 @@
 
 #include "core/localfileoperation.h"
 
-using namespace dcpp;
+using namespace bifrons;
 using Answer = FileOperation::Answer;
 using Kind = LocalFileOperation::Kind;
 
@@ -83,7 +83,7 @@ private slots:
         QVERIFY(QFileInfo::exists(m_src + QStringLiteral("/a.txt")));
         const qint64 drift = QFileInfo(m_dst + QStringLiteral("/copy/a.txt")).lastModified().secsTo(old);
         QVERIFY(qAbs(drift) <= 2);
-        QVERIFY(!QFileInfo::exists(m_dst + QStringLiteral("/copy/a.txt.dcpp-part")));
+        QVERIFY(!QFileInfo::exists(m_dst + QStringLiteral("/copy/a.txt.bifrons-part")));
     }
 
     void moveRenamesWholeTree()
@@ -129,7 +129,7 @@ private slots:
                                               [](const FileOperation::Query &) { return Answer::Overwrite; });
         QVERIFY(r.errors.isEmpty());
         QCOMPARE(readFile(target), QByteArray("alpha"));
-        QVERIFY(!QFileInfo::exists(target + QStringLiteral(".dcpp-bak")));
+        QVERIFY(!QFileInfo::exists(target + QStringLiteral(".bifrons-bak")));
     }
 
     void collisionOverwriteReadOnlyTarget()
@@ -189,7 +189,7 @@ private slots:
         op.run();
         QVERIFY(op.result().aborted);
         QVERIFY(!QFileInfo::exists(target));
-        QVERIFY(!QFileInfo::exists(target + QStringLiteral(".dcpp-part")));
+        QVERIFY(!QFileInfo::exists(target + QStringLiteral(".bifrons-part")));
     }
 
     void vanishedSourceIsSkipped()

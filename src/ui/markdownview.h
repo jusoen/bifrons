@@ -2,7 +2,7 @@
 
 #include <QTextBrowser>
 
-namespace dcpp {
+namespace bifrons {
 
 // Qt's GitHub-flavoured markdown, restyled GitHub-like with highlighted code blocks.
 class MarkdownView : public QTextBrowser
@@ -25,4 +25,4 @@ private:
     QString m_baseDir;
 };
 
-} // namespace dcpp
+} // namespace bifrons

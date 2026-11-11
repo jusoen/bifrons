@@ -12,7 +12,7 @@ class QPushButton;
 class QSpinBox;
 class QTableWidget;
 
-namespace dcpp {
+namespace bifrons {
 
 // Multi-rename (Ctrl+M) with a live preview. The rename runs only when the whole batch is valid.
 class MultiRenameDialog : public QDialog
@@ -52,4 +52,4 @@ private:
     QPushButton *m_rename = nullptr;
 };
 
-} // namespace dcpp
+} // namespace bifrons

@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-namespace dcpp {
+namespace bifrons {
 
 void sortFileItems(FileItemList &items, SortColumn column, Qt::SortOrder order)
 {
@@ -60,4 +60,4 @@ void sortFileItems(FileItemList &items, SortColumn column, Qt::SortOrder order)
     });
 }
 
-} // namespace dcpp
+} // namespace bifrons

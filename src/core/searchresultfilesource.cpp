@@ -5,7 +5,7 @@
 
 #include "core/localfilesource.h"
 
-namespace dcpp {
+namespace bifrons {
 
 SearchResultFileSource::SearchResultFileSource(QString baseDir, QStringList paths)
     : m_baseDir(LocalFileSource::normalise(baseDir))
@@ -74,4 +74,4 @@ QString SearchResultFileSource::displayPath(const QString &) const
     return QStringLiteral("Search results in %1").arg(QDir::toNativeSeparators(m_baseDir));
 }
 
-} // namespace dcpp
+} // namespace bifrons

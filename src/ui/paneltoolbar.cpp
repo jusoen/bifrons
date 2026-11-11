@@ -13,7 +13,7 @@
 #include "core/localfilesource.h"
 #include "ui/filepanel.h"
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -208,4 +208,4 @@ void PanelToolbar::refresh()
     m_drives->setCurrentIndex(-1);
 }
 
-} // namespace dcpp
+} // namespace bifrons

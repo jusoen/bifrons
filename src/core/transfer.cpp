@@ -5,7 +5,7 @@
 
 #include "core/localfilesource.h"
 
-namespace dcpp {
+namespace bifrons {
 
 TransferPlan planTransfer(const QStringList &sources, const QString &destination,
                           const QString &currentDir)
@@ -49,4 +49,4 @@ TransferPlan planTransfer(const QStringList &sources, const QString &destination
     return plan;
 }
 
-} // namespace dcpp
+} // namespace bifrons

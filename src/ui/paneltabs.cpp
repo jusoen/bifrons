@@ -16,7 +16,7 @@
 #include "core/localfilesource.h"
 #include "ui/filepanel.h"
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 constexpr int DragOutMargin = 20;
@@ -621,4 +621,4 @@ void PanelTabs::updateTitle(FilePanel *panel)
     setTabToolTip(index, QDir::toNativeSeparators(panel->path()));
 }
 
-} // namespace dcpp
+} // namespace bifrons

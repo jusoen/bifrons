@@ -4,7 +4,7 @@
 #include <QSet>
 #include <QStringList>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -464,4 +464,4 @@ QList<CodeToken> highlightCode(const QString &code, const QString &language)
     return tokens;
 }
 
-} // namespace dcpp
+} // namespace bifrons

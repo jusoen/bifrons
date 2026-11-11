@@ -13,7 +13,7 @@
 class QLabel;
 class QTableView;
 
-namespace dcpp {
+namespace bifrons {
 
 class FileListModel;
 class PathBar;
@@ -72,7 +72,7 @@ public:
     void setSort(SortColumn column, Qt::SortOrder order);
 
 signals:
-    void activated(dcpp::FilePanel *panel);
+    void activated(bifrons::FilePanel *panel);
     void switchPanelRequested();
     void pathChanged(const QString &path);
     void currentItemChanged();
@@ -128,4 +128,4 @@ private:
     bool m_active = false;
 };
 
-} // namespace dcpp
+} // namespace bifrons

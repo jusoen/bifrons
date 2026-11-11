@@ -3,7 +3,7 @@
 #include "core/localfilesource.h"
 #include "core/transfer.h"
 
-using namespace dcpp;
+using namespace bifrons;
 
 class TestTransfer : public QObject
 {

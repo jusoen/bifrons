@@ -4,7 +4,7 @@
 #include <QList>
 #include <QString>
 
-namespace dcpp {
+namespace bifrons {
 
 // One directory entry as shown in a panel.
 struct FileItem
@@ -25,4 +25,4 @@ struct FileItem
 
 using FileItemList = QList<FileItem>;
 
-} // namespace dcpp
+} // namespace bifrons

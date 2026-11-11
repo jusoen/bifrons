@@ -9,7 +9,7 @@
 #include "core/appinfo.h"
 #include "ui/viewerwidget.h"
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -78,4 +78,4 @@ void ViewerWindow::closeEvent(QCloseEvent *event)
     QWidget::closeEvent(event);
 }
 
-} // namespace dcpp
+} // namespace bifrons

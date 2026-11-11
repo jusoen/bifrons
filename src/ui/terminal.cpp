@@ -9,7 +9,7 @@
 #include <qt_windows.h>
 #endif
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -77,4 +77,4 @@ bool openTerminal(const QString &dir, QString *error)
     return false;
 }
 
-} // namespace dcpp
+} // namespace bifrons

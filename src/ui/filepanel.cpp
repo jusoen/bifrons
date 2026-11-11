@@ -25,7 +25,7 @@
 #include "ui/pathbar.h"
 #include "ui/terminal.h"
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -691,4 +691,4 @@ void FilePanel::showError(const QString &message)
     m_status->setText(message);
 }
 
-} // namespace dcpp
+} // namespace bifrons

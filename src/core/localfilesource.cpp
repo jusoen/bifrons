@@ -9,7 +9,7 @@
 #include <lm.h>
 #endif
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -225,4 +225,4 @@ QString LocalFileSource::nearestExistingDir(const QString &path)
     return normalise(QDir::homePath());
 }
 
-} // namespace dcpp
+} // namespace bifrons

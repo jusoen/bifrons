@@ -6,7 +6,7 @@ class QLabel;
 class QPlainTextEdit;
 class QStackedWidget;
 
-namespace dcpp {
+namespace bifrons {
 
 class ImageView;
 class MarkdownView;
@@ -66,4 +66,4 @@ private:
     QLabel *m_status = nullptr;
 };
 
-} // namespace dcpp
+} // namespace bifrons

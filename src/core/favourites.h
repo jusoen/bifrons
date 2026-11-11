@@ -5,7 +5,7 @@
 
 class QSettings;
 
-namespace dcpp {
+namespace bifrons {
 
 struct Favourite
 {
@@ -23,4 +23,4 @@ void saveFavourites(QSettings &s, const FavouriteList &list);
 bool addFavourite(FavouriteList &list, const QString &path, const QString &name = QString());
 int indexOfFavourite(const FavouriteList &list, const QString &path);
 
-} // namespace dcpp
+} // namespace bifrons

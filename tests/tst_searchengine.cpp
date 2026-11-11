@@ -3,7 +3,7 @@
 #include "core/searchengine.h"
 #include "core/searchresultfilesource.h"
 
-using namespace dcpp;
+using namespace bifrons;
 
 namespace {
 

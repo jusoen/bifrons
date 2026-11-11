@@ -4,7 +4,7 @@
 
 #include "core/fileitem.h"
 
-namespace dcpp {
+namespace bifrons {
 
 struct ListResult
 {
@@ -29,4 +29,4 @@ public:
     virtual QString displayPath(const QString &path) const = 0;
 };
 
-} // namespace dcpp
+} // namespace bifrons

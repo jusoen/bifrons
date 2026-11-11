@@ -1,6 +1,6 @@
 #include "core/filemask.h"
 
-namespace dcpp {
+namespace bifrons {
 
 FileMask::FileMask(const QString &masks)
 {
@@ -41,4 +41,4 @@ bool FileMask::isValid() const
     return true;
 }
 
-} // namespace dcpp
+} // namespace bifrons

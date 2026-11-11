@@ -17,7 +17,7 @@
 
 #include "core/localfilesource.h"
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -305,4 +305,4 @@ QString FindDialog::selectedPath() const
     return (row >= 0 && row < m_found.size()) ? m_found.at(row) : QString();
 }
 
-} // namespace dcpp
+} // namespace bifrons

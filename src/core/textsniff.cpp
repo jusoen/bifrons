@@ -3,7 +3,7 @@
 #include <QStringConverter>
 #include <QStringDecoder>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -89,4 +89,4 @@ QString decodeText(const QByteArray &data, QString *encodingName, bool truncated
     return system.decode(data);
 }
 
-} // namespace dcpp
+} // namespace bifrons

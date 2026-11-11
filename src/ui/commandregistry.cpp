@@ -3,7 +3,7 @@
 #include <QAction>
 #include <QWidget>
 
-namespace dcpp {
+namespace bifrons {
 
 CommandRegistry::CommandRegistry(QWidget *owner)
     : QObject(owner)
@@ -30,4 +30,4 @@ QAction *CommandRegistry::action(const QString &name) const
     return m_actions.value(name, nullptr);
 }
 
-} // namespace dcpp
+} // namespace bifrons

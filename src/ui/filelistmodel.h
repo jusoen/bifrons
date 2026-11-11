@@ -7,7 +7,7 @@
 #include "core/filemask.h"
 #include "core/filesort.h"
 
-namespace dcpp {
+namespace bifrons {
 
 // Optional ".." row plus sorted entries. Marks are tracked by name, apart from the cursor.
 class FileListModel : public QAbstractTableModel
@@ -73,4 +73,4 @@ private:
     bool m_panelActive = false;
 };
 
-} // namespace dcpp
+} // namespace bifrons

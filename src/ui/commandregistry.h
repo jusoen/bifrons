@@ -9,7 +9,7 @@
 class QAction;
 class QWidget;
 
-namespace dcpp {
+namespace bifrons {
 
 // Named cm_* commands (Double Commander names) bound to window-wide shortcuts.
 class CommandRegistry : public QObject
@@ -29,4 +29,4 @@ private:
     QHash<QString, QAction *> m_actions;
 };
 
-} // namespace dcpp
+} // namespace bifrons

@@ -2,7 +2,7 @@
 
 #include "core/localfilesource.h"
 
-using namespace dcpp;
+using namespace bifrons;
 
 class TestLocalFileSource : public QObject
 {

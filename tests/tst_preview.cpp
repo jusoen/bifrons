@@ -4,7 +4,7 @@
 #include "core/markdownprep.h"
 #include "core/textsniff.h"
 
-using namespace dcpp;
+using namespace bifrons;
 
 namespace {
 

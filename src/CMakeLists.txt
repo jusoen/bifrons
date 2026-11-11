@@ -1,5 +1,5 @@
 # Core library: QtCore only, no widgets, so it can be unit tested headless.
-add_library(dcpp_core STATIC
+add_library(bifrons_core STATIC
     core/appinfo.h
     core/appinfo.cpp
     core/codehighlight.h
@@ -32,15 +32,15 @@ add_library(dcpp_core STATIC
     core/transfer.h
     core/transfer.cpp
 )
-target_include_directories(dcpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(dcpp_core PUBLIC Qt6::Core)
+target_include_directories(bifrons_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(bifrons_core PUBLIC Qt6::Core)
 if(WIN32)
     # NetShareEnum, for listing the shares of a network server.
-    target_link_libraries(dcpp_core PRIVATE netapi32)
+    target_link_libraries(bifrons_core PRIVATE netapi32)
 endif()
-target_compile_definitions(dcpp_core PUBLIC DCPP_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(bifrons_core PUBLIC BIFRONS_VERSION="${PROJECT_VERSION}")
 
-qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
+qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     main.cpp
     ui/codetheme.h
     ui/codetheme.cpp
@@ -75,18 +75,18 @@ qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
     ui/viewerwindow.h
     ui/viewerwindow.cpp
 )
-target_link_libraries(dcpp PRIVATE dcpp_core Qt6::Widgets Qt6::Concurrent)
+target_link_libraries(bifrons PRIVATE bifrons_core Qt6::Widgets Qt6::Concurrent)
 
-# App icon (Split Folder). dcpp.svg is the source, dcpp.png and dcpp.ico are rendered from it.
+# App icon (Split Folder). bifrons.svg is the source, bifrons.png and bifrons.ico are rendered from it.
 set(_icon_dir "${PROJECT_SOURCE_DIR}/resources/icons")
-set_source_files_properties("${_icon_dir}/dcpp.png" PROPERTIES QT_RESOURCE_ALIAS "dcpp.png")
-qt_add_resources(dcpp "app_icon" PREFIX "/icons" FILES "${_icon_dir}/dcpp.png")
+set_source_files_properties("${_icon_dir}/bifrons.png" PROPERTIES QT_RESOURCE_ALIAS "bifrons.png")
+qt_add_resources(bifrons "app_icon" PREFIX "/icons" FILES "${_icon_dir}/bifrons.png")
 if(WIN32)
-    set(_icon_rc "${CMAKE_CURRENT_BINARY_DIR}/dcpp_icon.rc")
-    file(TO_NATIVE_PATH "${_icon_dir}/dcpp.ico" _icon_ico)
+    set(_icon_rc "${CMAKE_CURRENT_BINARY_DIR}/bifrons_icon.rc")
+    file(TO_NATIVE_PATH "${_icon_dir}/bifrons.ico" _icon_ico)
     string(REPLACE "\\" "\\\\" _icon_ico "${_icon_ico}")
     file(CONFIGURE OUTPUT "${_icon_rc}" CONTENT "IDI_ICON1 ICON \"${_icon_ico}\"\n")
-    target_sources(dcpp PRIVATE "${_icon_rc}")
+    target_sources(bifrons PRIVATE "${_icon_rc}")
 endif()
 
 # Copy the Qt runtime next to the executable so it runs from the build tree.
@@ -94,9 +94,9 @@ if(WIN32)
     get_target_property(_qmake Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(_qtbin "${_qmake}" DIRECTORY)
     find_program(WINDEPLOYQT windeployqt HINTS "${_qtbin}" REQUIRED)
-    add_custom_command(TARGET dcpp POST_BUILD
+    add_custom_command(TARGET bifrons POST_BUILD
         COMMAND "${WINDEPLOYQT}" --no-translations --no-compiler-runtime
-                --no-system-d3d-compiler --no-opengl-sw "$<TARGET_FILE:dcpp>"
+                --no-system-d3d-compiler --no-opengl-sw "$<TARGET_FILE:bifrons>"
         COMMENT "Deploying Qt runtime"
         VERBATIM
     )

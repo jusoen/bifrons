@@ -13,7 +13,7 @@
 class QFrame;
 class QLabel;
 
-namespace dcpp {
+namespace bifrons {
 
 class FilePanel;
 class TabGhost;
@@ -54,10 +54,10 @@ public:
     void restore(const QList<TabState> &tabs, int currentIndex);
 
 signals:
-    void panelActivated(dcpp::FilePanel *panel);
+    void panelActivated(bifrons::FilePanel *panel);
     void switchPanelRequested();
-    void currentItemChanged(dcpp::FilePanel *panel);
-    void currentPanelChanged(dcpp::FilePanel *panel);
+    void currentItemChanged(bifrons::FilePanel *panel);
+    void currentPanelChanged(bifrons::FilePanel *panel);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -111,4 +111,4 @@ private:
     std::shared_ptr<const FileSource> m_source;
 };
 
-} // namespace dcpp
+} // namespace bifrons

@@ -14,7 +14,7 @@ class QListWidget;
 class QPushButton;
 class QSpinBox;
 
-namespace dcpp {
+namespace bifrons {
 
 // Find Files (Alt+F7). Non-modal and reused, so the last criteria and results stay.
 class FindDialog : public QDialog
@@ -74,4 +74,4 @@ private:
     QStringList m_found;
 };
 
-} // namespace dcpp
+} // namespace bifrons

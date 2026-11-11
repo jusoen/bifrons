@@ -34,7 +34,7 @@
 
 #include <algorithm>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -642,4 +642,4 @@ void MainWindow::saveSettings() const
     }
 }
 
-} // namespace dcpp
+} // namespace bifrons

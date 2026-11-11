@@ -12,7 +12,7 @@
 
 #include "core/filemask.h"
 
-namespace dcpp {
+namespace bifrons {
 
 struct SearchCriteria
 {
@@ -84,4 +84,4 @@ bool fileContainsText(const QString &path, const QString &text, Qt::CaseSensitiv
                       QStringConverter::Encoding encoding, const std::atomic<bool> *cancelled,
                       QString *error);
 
-} // namespace dcpp
+} // namespace bifrons

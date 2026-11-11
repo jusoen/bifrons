@@ -4,7 +4,7 @@
 #include <QFile>
 #include <QStringDecoder>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -185,4 +185,4 @@ void SearchEngine::flush(bool force)
     m_flushTimer.restart();
 }
 
-} // namespace dcpp
+} // namespace bifrons

@@ -4,7 +4,7 @@
 
 #include "core/filesource.h"
 
-namespace dcpp {
+namespace bifrons {
 
 // Immutable flat listing of search results, named relative to baseDir.
 class SearchResultFileSource final : public FileSource
@@ -28,4 +28,4 @@ private:
     QStringList m_paths;
 };
 
-} // namespace dcpp
+} // namespace bifrons

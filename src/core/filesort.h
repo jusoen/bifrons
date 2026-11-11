@@ -4,7 +4,7 @@
 
 #include "core/fileitem.h"
 
-namespace dcpp {
+namespace bifrons {
 
 enum class SortColumn
 {
@@ -19,4 +19,4 @@ enum class SortColumn
 // Directories first, natural case-insensitive name order ("file2" < "file10").
 void sortFileItems(FileItemList &items, SortColumn column, Qt::SortOrder order);
 
-} // namespace dcpp
+} // namespace bifrons

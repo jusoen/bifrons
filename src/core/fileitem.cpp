@@ -1,6 +1,6 @@
 #include "core/fileitem.h"
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -31,4 +31,4 @@ QString FileItem::baseName() const
     return dot < 0 ? name : name.left(dot);
 }
 
-} // namespace dcpp
+} // namespace bifrons

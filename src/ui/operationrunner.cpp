@@ -10,7 +10,7 @@
 
 #include <algorithm>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -162,4 +162,4 @@ void OperationRunner::onOperationFinished()
     emit finished(m_op->result());
 }
 
-} // namespace dcpp
+} // namespace bifrons

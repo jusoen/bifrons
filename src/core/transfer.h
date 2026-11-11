@@ -3,7 +3,7 @@
 #include <QList>
 #include <QString>
 
-namespace dcpp {
+namespace bifrons {
 
 // One top-level source and the full path it is copied or moved to.
 struct TransferItem
@@ -25,4 +25,4 @@ struct TransferPlan
 TransferPlan planTransfer(const QStringList &sources, const QString &destination,
                           const QString &currentDir);
 
-} // namespace dcpp
+} // namespace bifrons

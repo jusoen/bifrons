@@ -41,7 +41,7 @@ cmake --build --preset msvc-debug
 ctest --preset msvc-debug
 ```
 
-The executable is `build\msvc-debug\dcpp.exe`. The Qt runtime is copied next to it after each build, so it runs in place. If Qt is installed somewhere other than `C:\Qt\6.11.1\msvc2022_64`, set `CMAKE_PREFIX_PATH` in a `CMakeUserPresets.json`.
+The executable is `build\msvc-debug\bifrons.exe`. The Qt runtime is copied next to it after each build, so it runs in place. If Qt is installed somewhere other than `C:\Qt\6.11.1\msvc2022_64`, set `CMAKE_PREFIX_PATH` in a `CMakeUserPresets.json`.
 
 ## Layout
 

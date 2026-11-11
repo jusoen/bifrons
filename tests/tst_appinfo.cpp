@@ -10,13 +10,13 @@ class TestAppInfo : public QObject
 private slots:
     void versionMatchesProject()
     {
-        QCOMPARE(dcpp::appVersion(), QStringLiteral(DCPP_VERSION));
-        QVERIFY(!dcpp::appVersion().isEmpty());
+        QCOMPARE(bifrons::appVersion(), QStringLiteral(BIFRONS_VERSION));
+        QVERIFY(!bifrons::appVersion().isEmpty());
     }
 
     void displayName()
     {
-        QCOMPARE(dcpp::appDisplayName(), QStringLiteral("Bifrons"));
+        QCOMPARE(bifrons::appDisplayName(), QStringLiteral("Bifrons"));
     }
 };
 

@@ -4,7 +4,7 @@
 #include <QRegularExpression>
 #include <QString>
 
-namespace dcpp {
+namespace bifrons {
 
 // Case-insensitive ';'-separated wildcard masks, e.g. "*.cpp;*.h".
 class FileMask
@@ -19,4 +19,4 @@ private:
     QList<QRegularExpression> m_patterns;
 };
 
-} // namespace dcpp
+} // namespace bifrons

@@ -6,7 +6,7 @@
 #include <QRegularExpression>
 #include <QSet>
 
-namespace dcpp {
+namespace bifrons {
 
 namespace {
 
@@ -197,7 +197,7 @@ QString tempNameFor(const QString &path, int serial)
     const QFileInfo info(path);
     for (int n = 0; n < MaxTempTries; ++n) {
         const QString candidate = QDir(info.absolutePath())
-                                      .filePath(QStringLiteral(".dcpp-mr-%1-%2").arg(serial).arg(n));
+                                      .filePath(QStringLiteral(".bifrons-mr-%1-%2").arg(serial).arg(n));
         if (!QFileInfo::exists(candidate)) {
             return candidate;
         }
@@ -343,4 +343,4 @@ RenameResult undoRenames(const QList<RenameStep> &done)
     return runSteps(reverse);
 }
 
-} // namespace dcpp
+} // namespace bifrons
