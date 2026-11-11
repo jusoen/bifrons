@@ -22,11 +22,14 @@
 #include "core/searchresultfilesource.h"
 #include "core/transfer.h"
 #include "ui/commandregistry.h"
+#if defined(BIFRONS_DEMO_OPERATION)
+#include "ui/demooperation.h"
+#endif
 #include "ui/filepanel.h"
 #include "ui/favouritesdialog.h"
 #include "ui/finddialog.h"
 #include "ui/multirenamedialog.h"
-#include "ui/operationrunner.h"
+#include "ui/operationqueue.h"
 #include "ui/paneltabs.h"
 #include "ui/paneltoolbar.h"
 #include "ui/viewerwidget.h"
@@ -156,6 +159,10 @@ void MainWindow::createCommands()
     m_commands->add(QStringLiteral("cm_MakeDir"), tr("&New Folder…"), Qt::Key_F7, [this] { cmMakeDir(); });
     m_commands->add(QStringLiteral("cm_Delete"), tr("&Delete…"), Qt::Key_F8, [this] { cmDelete(); });
     m_commands->add(QStringLiteral("cm_Refresh"), tr("&Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
+#if defined(BIFRONS_DEMO_OPERATION)
+    m_commands->add(QStringLiteral("cm_TestBackgroundOperation"), tr("Test &Background Operation"), QKeySequence(),
+                    [this] { runOperation(new DemoOperation, tr("Test operation")); });
+#endif
     m_commands->add(QStringLiteral("cm_RunTerm"), tr("Open &Terminal Here"), QKeySequence(),
                     [this] { m_active->openTerminalHere(); });
     m_commands->add(QStringLiteral("cm_ViewHistoryPrev"), tr("&Back"), Qt::ALT | Qt::Key_Left,
@@ -215,12 +222,19 @@ void MainWindow::createMenus()
             Q_ASSERT(action != nullptr);
             menu->addAction(action);
         }
+        return menu;
     };
     addMenu(tr("&File"), {"cm_View", nullptr, "cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete", nullptr,
                           "cm_MultiRename", nullptr, "cm_Exit"});
     addMenu(tr("&Mark"), {"cm_MarkPlus", "cm_MarkMinus", nullptr, "cm_MarkMarkAll", "cm_MarkUnmarkAll"});
-    addMenu(tr("&Commands"), {"cm_Search", "cm_RunTerm", nullptr, "cm_ViewHistoryPrev", "cm_ViewHistoryNext",
-                              nullptr, "cm_Refresh"});
+    QMenu *commands = addMenu(tr("&Commands"), {"cm_Search", "cm_RunTerm", nullptr, "cm_ViewHistoryPrev",
+                                                "cm_ViewHistoryNext", nullptr, "cm_Refresh"});
+#if defined(BIFRONS_DEMO_OPERATION)
+    commands->addSeparator();
+    commands->addAction(m_commands->action(QStringLiteral("cm_TestBackgroundOperation")));
+#else
+    Q_UNUSED(commands);
+#endif
     addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
     QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
     connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
@@ -313,6 +327,10 @@ QWidget *MainWindow::wrapWithToolbar(PanelTabs *side)
     layout->setSpacing(2);
     layout->addWidget(toolbar);
     layout->addWidget(side, 1);
+    auto *queue = new OperationQueue(this, container);
+    layout->addWidget(queue);
+    m_queues.insert(side, queue);
+    connect(queue, &OperationQueue::finished, this, &MainWindow::onOperationFinished);
     connect(side, &PanelTabs::currentPanelChanged, toolbar, &PanelToolbar::setPanel);
     toolbar->setPanel(side->currentPanel());
     return container;
@@ -523,23 +541,33 @@ void MainWindow::cmRefresh()
 
 void MainWindow::runOperation(FileOperation *op, const QString &title)
 {
-    if (m_runner != nullptr) {
+    OperationQueue *queue = m_queues.value(activeSide(), nullptr);
+    if (op == nullptr || queue == nullptr || m_closePending) {
         delete op;
         return;
     }
-    m_runner = new OperationRunner(op, title, this);
-    connect(m_runner, &OperationRunner::finished, this, &MainWindow::onOperationFinished);
-    m_runner->start();
+    queue->enqueue(op, title);
+}
+
+bool MainWindow::operationsBusy() const
+{
+    for (const OperationQueue *queue : m_queues) {
+        if (queue->isBusy()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void MainWindow::onOperationFinished(const FileOperation::Result &result)
 {
-    m_runner->deleteLater();
-    m_runner = nullptr;
     cmRefresh();
 
     if (m_closePending) {
-        close();
+        // Close once the last side has stopped.
+        if (!operationsBusy()) {
+            close();
+        }
         return;
     }
     if (!result.errors.isEmpty()) {
@@ -549,15 +577,16 @@ void MainWindow::onOperationFinished(const FileOperation::Result &result)
         }
         QMessageBox::warning(this, tr("Some items were not processed"), shown.join(QLatin1Char('\n')));
     }
-    activeSide()->currentPanel()->focusView();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    // Never block on the worker: cancel it and close once it reports back.
-    if (m_runner != nullptr && m_runner->isRunning()) {
+    // Never block on a worker: drop queued work, cancel what runs and close once every side reports back.
+    if (operationsBusy()) {
         m_closePending = true;
-        m_runner->cancel();
+        for (OperationQueue *queue : std::as_const(m_queues)) {
+            queue->cancelAll();
+        }
         event->ignore();
         return;
     }

@@ -48,6 +48,8 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/commandregistry.cpp
     ui/favouritesdialog.h
     ui/favouritesdialog.cpp
+    ui/fileicons.h
+    ui/fileicons.cpp
     ui/filelistmodel.h
     ui/filelistmodel.cpp
     ui/finddialog.h
@@ -58,6 +60,8 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/multirenamedialog.cpp
     ui/mainwindow.h
     ui/mainwindow.cpp
+    ui/operationqueue.h
+    ui/operationqueue.cpp
     ui/operationrunner.h
     ui/operationrunner.cpp
     ui/markdownview.h
@@ -76,6 +80,13 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/viewerwindow.cpp
 )
 target_link_libraries(bifrons PRIVATE bifrons_core Qt6::Widgets Qt6::Concurrent)
+
+# Commands > Test Background Operation: writes and slowly copies scratch files to show background progress.
+option(BIFRONS_DEMO_OPERATION "Include the background operation test command" OFF)
+if(BIFRONS_DEMO_OPERATION)
+    target_sources(bifrons PRIVATE ui/demooperation.h ui/demooperation.cpp)
+    target_compile_definitions(bifrons PRIVATE BIFRONS_DEMO_OPERATION)
+endif()
 
 # App icon (Split Folder). bifrons.svg is the source, bifrons.png and bifrons.ico are rendered from it.
 set(_icon_dir "${PROJECT_SOURCE_DIR}/resources/icons")

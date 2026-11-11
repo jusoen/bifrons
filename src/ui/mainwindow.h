@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QMainWindow>
 #include <QPointer>
 #include <QTimer>
@@ -21,7 +22,7 @@ class CommandRegistry;
 class FilePanel;
 class FindDialog;
 class LocalFileSource;
-class OperationRunner;
+class OperationQueue;
 class PanelTabs;
 class ViewerWidget;
 
@@ -62,8 +63,10 @@ private:
     void cmMultiRename();
     void transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &baseDir,
                   const QString &title, const QString &label, const QString &defaultDestination);
+    // Queues op on the active side. Each side runs its own operations one at a time in the background.
     void runOperation(FileOperation *op, const QString &title);
     void onOperationFinished(const FileOperation::Result &result);
+    bool operationsBusy() const;
 
     void loadSettings();
     void saveSettings() const;
@@ -75,7 +78,6 @@ private:
     PanelTabs *m_right = nullptr;
     PanelTabs *m_activeSide = nullptr;
     QPointer<FilePanel> m_active;
-    OperationRunner *m_runner = nullptr;
     FindDialog *m_find = nullptr;
     QStackedWidget *m_leftStack = nullptr;
     QStackedWidget *m_rightStack = nullptr;
@@ -86,6 +88,8 @@ private:
     QList<RenameStep> m_lastRename;
     FavouriteList m_favourites;
     bool m_closePending = false;
+    // Each side's operation queue, shown as a progress strip under its tabs.
+    QHash<PanelTabs *, OperationQueue *> m_queues;
     bool m_showHidden = false;
 };
 

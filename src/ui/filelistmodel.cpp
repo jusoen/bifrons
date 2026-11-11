@@ -25,6 +25,20 @@ FileListModel::FileListModel(QObject *parent)
     }
 }
 
+void FileListModel::setIconLookup(std::function<QIcon(const FileItem &)> lookup)
+{
+    m_iconLookup = std::move(lookup);
+}
+
+void FileListModel::refreshIcon(const QString &name)
+{
+    const int row = rowOfName(name);
+    if (row >= 0) {
+        const QModelIndex cell = index(row, static_cast<int>(SortColumn::Name));
+        emit dataChanged(cell, cell, {Qt::DecorationRole});
+    }
+}
+
 void FileListModel::setPanelActive(bool active)
 {
     if (m_panelActive == active) {
@@ -132,6 +146,9 @@ QVariant FileListModel::data(const QModelIndex &index, int role) const
         break;
     case Qt::DecorationRole:
         if (column == SortColumn::Name) {
+            if (m_iconLookup) {
+                return m_iconLookup(*item);
+            }
             return item->isDir ? m_dirIcon : m_fileIcon;
         }
         break;

@@ -4,6 +4,8 @@
 #include <QIcon>
 #include <QSet>
 
+#include <functional>
+
 #include "core/filemask.h"
 #include "core/filesort.h"
 
@@ -18,6 +20,10 @@ public:
     explicit FileListModel(QObject *parent = nullptr);
 
     void setItems(FileItemList items, bool showParent, bool keepMarks);
+    // Supplies each file's icon. Without one, files and folders get the generic style icons.
+    void setIconLookup(std::function<QIcon(const FileItem &)> lookup);
+    // Repaints the icon of the entry called name, after its icon has loaded.
+    void refreshIcon(const QString &name);
     // An inactive panel draws its cursor row pale, so the ".." arrow stays dark there.
     void setPanelActive(bool active);
     // Hiding drops marks on hidden entries.
@@ -71,6 +77,7 @@ private:
     // Same arrow, drawn dark even on the cursor row.
     QIcon m_parentIconInactive;
     bool m_panelActive = false;
+    std::function<QIcon(const FileItem &)> m_iconLookup;
 };
 
 } // namespace bifrons

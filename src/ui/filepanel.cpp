@@ -21,6 +21,7 @@
 #include "core/filemask.h"
 #include "core/localfilesource.h"
 #include "core/searchresultfilesource.h"
+#include "ui/fileicons.h"
 #include "ui/filelistmodel.h"
 #include "ui/pathbar.h"
 #include "ui/terminal.h"
@@ -43,6 +44,17 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
     , m_loadingSource(m_local)
 {
     m_model = new FileListModel(this);
+    m_model->setIconLookup([this](const FileItem &item) {
+        return FileIcons::instance().icon(item, m_source->childPath(m_path, item.name));
+    });
+    connect(&FileIcons::instance(), &FileIcons::iconReady, this, [this](const QString &path) {
+        // Only rows of the folder on show. A search result's name may include a subfolder.
+        const QString base = isShowingResults() && m_results ? m_results->baseDir() : m_path;
+        const QString prefix = base.endsWith(QLatin1Char('/')) ? base : base + QLatin1Char('/');
+        if (path.startsWith(prefix, Qt::CaseInsensitive)) {
+            m_model->refreshIcon(path.mid(prefix.size()));
+        }
+    });
 
     m_view = new QTableView(this);
     m_view->setModel(m_model);

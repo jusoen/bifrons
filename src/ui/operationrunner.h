@@ -9,12 +9,13 @@
 
 #include "core/fileoperation.h"
 
-class QProgressDialog;
 class QWidget;
 
 namespace bifrons {
 
-// Runs a FileOperation on its own thread. Delete only after finished().
+// Runs a FileOperation on its own thread, without blocking the window. Progress is reported by
+// progressChanged() for the status bar. Questions (overwrite, errors) still open a message box.
+// Delete only after finished().
 class OperationRunner : public QObject
 {
     Q_OBJECT
@@ -27,8 +28,11 @@ public:
     void start();
     void cancel();
     bool isRunning() const;
+    QString title() const;
 
 signals:
+    // permille is 0 to 1000. current is the item being processed, already formatted for display.
+    void progressChanged(int permille, const QString &current);
     void finished(const bifrons::FileOperation::Result &result);
 
 private:
@@ -39,7 +43,7 @@ private:
 
     FileOperation *m_op;
     QWidget *m_window;
-    QProgressDialog *m_dialog = nullptr;
+    QString m_title;
     QThread m_thread;
     bool m_running = false;
 

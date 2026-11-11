@@ -5,7 +5,6 @@
 #include <QFileInfo>
 #include <QLocale>
 #include <QMessageBox>
-#include <QProgressDialog>
 #include <QPushButton>
 
 #include <algorithm>
@@ -17,7 +16,6 @@ namespace {
 constexpr int AnswerPollMs = 100;
 constexpr unsigned long ThreadJoinMs = 5000;
 constexpr int ProgressScale = 1000;
-constexpr int ProgressShowDelayMs = 400;
 
 QString describe(const QString &path)
 {
@@ -34,20 +32,12 @@ OperationRunner::OperationRunner(FileOperation *op, const QString &title, QWidge
     : QObject(window)
     , m_op(op)
     , m_window(window)
+    , m_title(title)
 {
     m_op->setParent(nullptr);
     m_op->moveToThread(&m_thread);
     m_op->setQueryHandler([this](const FileOperation::Query &q) { return askFromWorker(q); });
 
-    m_dialog = new QProgressDialog(title, tr("Cancel"), 0, ProgressScale, window);
-    m_dialog->setWindowTitle(title);
-    m_dialog->setWindowModality(Qt::WindowModal);
-    m_dialog->setMinimumDuration(ProgressShowDelayMs);
-    m_dialog->setAutoClose(false);
-    m_dialog->setAutoReset(false);
-    m_dialog->setMinimumWidth(500);
-
-    connect(m_dialog, &QProgressDialog::canceled, this, &OperationRunner::cancel);
     connect(&m_thread, &QThread::started, m_op, &FileOperation::run);
     connect(m_op, &FileOperation::progress, this, &OperationRunner::onProgress);
     connect(m_op, &FileOperation::finished, this, &OperationRunner::onOperationFinished);
@@ -62,14 +52,14 @@ OperationRunner::~OperationRunner()
 void OperationRunner::start()
 {
     m_running = true;
-    m_dialog->setValue(0);
+    emit progressChanged(0, QString());
     m_thread.start();
 }
 
 void OperationRunner::cancel()
 {
     m_op->cancel();
-    m_dialog->setLabelText(tr("Cancelling…"));
+    emit progressChanged(0, tr("Cancelling…"));
     // Wake a worker waiting on a query so it sees the cancel straight away.
     const QMutexLocker lock(&m_mutex);
     m_answered.wakeAll();
@@ -78,6 +68,11 @@ void OperationRunner::cancel()
 bool OperationRunner::isRunning() const
 {
     return m_running;
+}
+
+QString OperationRunner::title() const
+{
+    return m_title;
 }
 
 FileOperation::Answer OperationRunner::askFromWorker(const FileOperation::Query &query)
@@ -99,7 +94,7 @@ FileOperation::Answer OperationRunner::askFromWorker(const FileOperation::Query 
 void OperationRunner::showQuery(quint64 id, const FileOperation::Query &query)
 {
     using Answer = FileOperation::Answer;
-    QMessageBox box(m_dialog->isVisible() ? static_cast<QWidget *>(m_dialog) : m_window);
+    QMessageBox box(m_window);
     QHash<QAbstractButton *, Answer> answers;
     auto addButton = [&](const QString &text, QMessageBox::ButtonRole role, Answer answer) {
         answers.insert(box.addButton(text, role), answer);
@@ -144,10 +139,7 @@ void OperationRunner::onProgress(qint64 done, qint64 total, const QString &curre
         return;
     }
     const int value = total > 0 ? static_cast<int>((done * ProgressScale) / total) : 0;
-    m_dialog->setValue(std::clamp(value, 0, ProgressScale));
-    if (!current.isEmpty()) {
-        m_dialog->setLabelText(QDir::toNativeSeparators(current));
-    }
+    emit progressChanged(std::clamp(value, 0, ProgressScale), QDir::toNativeSeparators(current));
 }
 
 void OperationRunner::onOperationFinished()
@@ -158,7 +150,6 @@ void OperationRunner::onOperationFinished()
         qWarning("Operation thread did not stop within %lu ms", ThreadJoinMs);
     }
     m_running = false;
-    m_dialog->close();
     emit finished(m_op->result());
 }
 
