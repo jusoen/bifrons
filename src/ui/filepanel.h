@@ -18,6 +18,7 @@ class QTableView;
 namespace dcpp {
 
 class FileListModel;
+class SearchResultFileSource;
 
 // Path bar, file list and status line. Listing runs on the thread pool.
 class FilePanel : public QWidget
@@ -28,9 +29,16 @@ public:
     explicit FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent = nullptr);
 
     QString path() const;
-    // Lists path in the background, then selects selectName if given.
+    // Lists a local path in the background, then selects selectName if given.
     void setPath(const QString &path, const QString &selectName = QString());
     void reload();
+
+    void showSearchResults(std::shared_ptr<const SearchResultFileSource> results);
+    bool isShowingResults() const;
+    // A real folder to save and restore: the searched folder when showing results.
+    QString persistentPath() const;
+    // Full path of the entry under the cursor, empty on the ".." row.
+    QString currentPath() const;
 
     // Marked entries, or the entry under the cursor when none are marked.
     QStringList selectedPaths() const;
@@ -53,6 +61,7 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    void loadFrom(std::shared_ptr<const FileSource> source, const QString &path, const QString &selectName);
     void onLoadFinished();
     void openCurrent();
     void goParent();
@@ -63,7 +72,10 @@ private:
     void updateDriveCombo();
     void showError(const QString &message);
 
+    std::shared_ptr<const FileSource> m_local;
     std::shared_ptr<const FileSource> m_source;
+    std::shared_ptr<const FileSource> m_loadingSource;
+    std::shared_ptr<const SearchResultFileSource> m_results;
     FileListModel *m_model = nullptr;
     QTableView *m_view = nullptr;
     QLineEdit *m_pathEdit = nullptr;

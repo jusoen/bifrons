@@ -1,11 +1,14 @@
 #pragma once
 
+#include <QPointer>
 #include <QTabWidget>
 
 #include <memory>
 
 #include "core/filesort.h"
 #include "core/filesource.h"
+
+class QMimeData;
 
 namespace dcpp {
 
@@ -47,9 +50,23 @@ signals:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     FilePanel *addPanel(int index, const TabState &state);
+    void adoptPanel(FilePanel *panel, int index);
+    void moveTabTo(FilePanel *panel, PanelTabs *target, int index);
+    void startTabDrag(int index);
+    bool acceptsTabDrop(const QMimeData *mime) const;
+
+    // The tab being dragged between sides. Drags never cross processes.
+    static QPointer<PanelTabs> s_dragSource;
+    static QPointer<FilePanel> s_dragPanel;
+
+    int m_pressIndex = -1;
+    QPoint m_pressPos;
     void closeTab(int index);
     void updateTitle(FilePanel *panel);
 

@@ -15,6 +15,10 @@ add_library(dcpp_core STATIC
     core/localfileoperation.cpp
     core/localfilesource.h
     core/localfilesource.cpp
+    core/searchengine.h
+    core/searchengine.cpp
+    core/searchresultfilesource.h
+    core/searchresultfilesource.cpp
     core/transfer.h
     core/transfer.cpp
 )
@@ -28,6 +32,8 @@ qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
     ui/commandregistry.cpp
     ui/filelistmodel.h
     ui/filelistmodel.cpp
+    ui/finddialog.h
+    ui/finddialog.cpp
     ui/filepanel.h
     ui/filepanel.cpp
     ui/mainwindow.h

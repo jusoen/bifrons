@@ -14,6 +14,7 @@ namespace dcpp {
 
 class CommandRegistry;
 class FilePanel;
+class FindDialog;
 class LocalFileSource;
 class OperationRunner;
 class PanelTabs;
@@ -42,8 +43,9 @@ private:
     void cmDelete();
     void cmRefresh();
 
-    void transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &title,
-                  const QString &label, const QString &defaultDestination);
+    void cmSearch();
+    void transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &baseDir,
+                  const QString &title, const QString &label, const QString &defaultDestination);
     void runOperation(FileOperation *op, const QString &title);
     void onOperationFinished(const FileOperation::Result &result);
 
@@ -58,6 +60,7 @@ private:
     PanelTabs *m_activeSide = nullptr;
     QPointer<FilePanel> m_active;
     OperationRunner *m_runner = nullptr;
+    FindDialog *m_find = nullptr;
     bool m_closePending = false;
 };
 

@@ -11,9 +11,11 @@
 
 #include "core/appinfo.h"
 #include "core/localfilesource.h"
+#include "core/searchresultfilesource.h"
 #include "core/transfer.h"
 #include "ui/commandregistry.h"
 #include "ui/filepanel.h"
+#include "ui/finddialog.h"
 #include "ui/operationrunner.h"
 #include "ui/paneltabs.h"
 
@@ -76,6 +78,7 @@ void MainWindow::createCommands()
     m_commands->add(QStringLiteral("cm_Delete"), tr("Delete"), Qt::Key_F8, [this] { cmDelete(); });
     m_commands->add(QStringLiteral("cm_Refresh"), tr("Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
     m_commands->add(QStringLiteral("cm_Exit"), tr("Exit"), Qt::ALT | Qt::Key_X, [this] { close(); });
+    m_commands->add(QStringLiteral("cm_Search"), tr("Find Files"), Qt::ALT | Qt::Key_F7, [this] { cmSearch(); });
     m_commands->add(QStringLiteral("cm_NewTab"), tr("New Tab"), Qt::CTRL | Qt::Key_T,
                     [this] { activeSide()->newTab(); });
     m_commands->add(QStringLiteral("cm_CloseTab"), tr("Close Tab"), Qt::CTRL | Qt::Key_W,
@@ -110,30 +113,33 @@ FilePanel *MainWindow::otherPanel() const
 void MainWindow::cmCopy()
 {
     const QStringList sources = m_active->selectedPaths();
-    transfer(LocalFileOperation::Kind::Copy, sources, tr("Copy"),
-             tr("Copy %1 item(s) to:").arg(sources.size()), m_source->displayPath(otherPanel()->path()));
+    transfer(LocalFileOperation::Kind::Copy, sources, m_active->persistentPath(), tr("Copy"),
+             tr("Copy %1 item(s) to:").arg(sources.size()),
+             m_source->displayPath(otherPanel()->persistentPath()));
 }
 
 void MainWindow::cmRename()
 {
     const QStringList sources = m_active->selectedPaths();
-    transfer(LocalFileOperation::Kind::Move, sources, tr("Move"),
-             tr("Move %1 item(s) to:").arg(sources.size()), m_source->displayPath(otherPanel()->path()));
+    transfer(LocalFileOperation::Kind::Move, sources, m_active->persistentPath(), tr("Move"),
+             tr("Move %1 item(s) to:").arg(sources.size()),
+             m_source->displayPath(otherPanel()->persistentPath()));
 }
 
 void MainWindow::cmRenameOnly()
 {
     // Renames only the item under the cursor, whatever is marked.
-    const QString name = m_active->currentName();
-    if (name.isEmpty()) {
+    const QString path = m_active->currentPath();
+    if (path.isEmpty()) {
         return;
     }
-    transfer(LocalFileOperation::Kind::Move, {m_source->childPath(m_active->path(), name)}, tr("Rename"),
-             tr("New name:"), name);
+    const QFileInfo info(path);
+    transfer(LocalFileOperation::Kind::Move, {path}, info.absolutePath(), tr("Rename"), tr("New name:"),
+             info.fileName());
 }
 
-void MainWindow::transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &title,
-                          const QString &label, const QString &defaultDestination)
+void MainWindow::transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &baseDir,
+                          const QString &title, const QString &label, const QString &defaultDestination)
 {
     if (sources.isEmpty()) {
         return;
@@ -144,7 +150,7 @@ void MainWindow::transfer(LocalFileOperation::Kind kind, const QStringList &sour
     if (!ok) {
         return;
     }
-    const TransferPlan plan = planTransfer(sources, destination, m_active->path());
+    const TransferPlan plan = planTransfer(sources, destination, baseDir);
     if (!plan.ok) {
         QMessageBox::warning(this, title, plan.error);
         return;
@@ -159,6 +165,10 @@ void MainWindow::transfer(LocalFileOperation::Kind kind, const QStringList &sour
 
 void MainWindow::cmMakeDir()
 {
+    if (m_active->isShowingResults()) {
+        QMessageBox::information(this, tr("New Folder"), tr("Folders cannot be created in search results."));
+        return;
+    }
     bool ok = false;
     const QString name = QInputDialog::getText(this, tr("New Folder"), tr("Folder name:"),
                                                QLineEdit::Normal, QString(), &ok).trimmed();
@@ -193,6 +203,31 @@ void MainWindow::cmDelete()
         items.append({path, QString()});
     }
     runOperation(new LocalFileOperation(LocalFileOperation::Kind::Delete, items), tr("Delete"));
+}
+
+void MainWindow::cmSearch()
+{
+    if (m_find == nullptr) {
+        m_find = new FindDialog(this);
+        connect(m_find, &FindDialog::goToFile, this, [this](const QString &path) {
+            const QFileInfo info(path);
+            m_active->setPath(info.absolutePath(), info.fileName());
+            m_active->focusView();
+        });
+        connect(m_find, &FindDialog::feedToPanel, this, [this](const QString &baseDir, const QStringList &paths) {
+            m_active->showSearchResults(std::make_shared<SearchResultFileSource>(baseDir, paths));
+            m_active->focusView();
+        });
+        connect(m_find, &FindDialog::searchFinished, this, [this] {
+            if (m_closePending) {
+                close();
+            }
+        });
+    }
+    m_find->setStartDir(m_active->persistentPath());
+    m_find->show();
+    m_find->raise();
+    m_find->activateWindow();
 }
 
 void MainWindow::cmRefresh()
@@ -238,6 +273,12 @@ void MainWindow::closeEvent(QCloseEvent *event)
     if (m_runner != nullptr && m_runner->isRunning()) {
         m_closePending = true;
         m_runner->cancel();
+        event->ignore();
+        return;
+    }
+    if (m_find != nullptr && m_find->isSearching()) {
+        m_closePending = true;
+        m_find->stopSearch();
         event->ignore();
         return;
     }

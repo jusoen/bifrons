@@ -18,6 +18,7 @@
 
 #include "core/filemask.h"
 #include "core/localfilesource.h"
+#include "core/searchresultfilesource.h"
 #include "ui/filelistmodel.h"
 
 namespace dcpp {
@@ -58,7 +59,9 @@ public:
 
 FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
     : QWidget(parent)
-    , m_source(std::move(source))
+    , m_local(std::move(source))
+    , m_source(m_local)
+    , m_loadingSource(m_local)
 {
     m_model = new FileListModel(this);
 
@@ -146,10 +149,37 @@ QString FilePanel::path() const
 
 void FilePanel::setPath(const QString &path, const QString &selectName)
 {
+    loadFrom(m_local, path, selectName);
+}
+
+void FilePanel::showSearchResults(std::shared_ptr<const SearchResultFileSource> results)
+{
+    m_results = results;
+    loadFrom(std::move(results), SearchResultFileSource::rootPath(), QString());
+}
+
+bool FilePanel::isShowingResults() const
+{
+    return m_source != m_local;
+}
+
+QString FilePanel::persistentPath() const
+{
+    return isShowingResults() && m_results ? m_results->baseDir() : m_path;
+}
+
+QString FilePanel::currentPath() const
+{
+    const QString name = currentName();
+    return name.isEmpty() ? QString() : m_source->childPath(m_path, name);
+}
+
+void FilePanel::loadFrom(std::shared_ptr<const FileSource> source, const QString &path, const QString &selectName)
+{
+    m_loadingSource = source;
     m_loadingPath = path;
     m_selectAfterLoad = selectName;
     m_status->setText(tr("Loading…"));
-    std::shared_ptr<const FileSource> source = m_source;
     // setFuture detaches the previous load, so a slow earlier listing can never overwrite this one.
     m_loader.setFuture(QtConcurrent::run([source, path] { return source->list(path); }));
 }
@@ -157,7 +187,7 @@ void FilePanel::setPath(const QString &path, const QString &selectName)
 void FilePanel::reload()
 {
     if (!m_path.isEmpty()) {
-        setPath(m_path, currentName());
+        loadFrom(m_source, m_path, currentName());
     }
 }
 
@@ -165,10 +195,11 @@ void FilePanel::onLoadFinished()
 {
     const ListResult result = m_loader.result();
     const QString loaded = m_loadingPath;
+    const bool local = m_loadingSource == m_local;
 
     if (!result.ok) {
         // The current folder vanished: fall back to the closest folder that still exists.
-        if (loaded == m_path && !QFileInfo(m_path).isDir() && m_redirects < MaxRedirects) {
+        if (local && loaded == m_path && !QFileInfo(m_path).isDir() && m_redirects < MaxRedirects) {
             ++m_redirects;
             setPath(LocalFileSource::nearestExistingDir(m_path));
             return;
@@ -185,13 +216,19 @@ void FilePanel::onLoadFinished()
     }
 
     m_redirects = 0;
-    const bool sameDir = loaded == m_path;
+    const bool sameDir = loaded == m_path && m_loadingSource == m_source;
     if (!sameDir) {
         if (!m_fsWatcher.directories().isEmpty()) {
             m_fsWatcher.removePaths(m_fsWatcher.directories());
         }
-        // Without a watch the panel still works, it just needs a manual refresh.
-        (void)m_fsWatcher.addPath(loaded);
+        if (local) {
+            // Without a watch the panel still works, it just needs a manual refresh.
+            (void)m_fsWatcher.addPath(loaded);
+        }
+    }
+    m_source = m_loadingSource;
+    if (local) {
+        m_results.reset();
     }
     m_path = loaded;
     m_pathEdit->setText(m_source->displayPath(m_path));
@@ -337,6 +374,10 @@ void FilePanel::openCurrent()
 
 void FilePanel::goParent()
 {
+    if (isShowingResults() && m_results) {
+        setPath(m_results->baseDir());
+        return;
+    }
     const QString parent = m_source->parentPath(m_path);
     if (!parent.isEmpty()) {
         setPath(parent, QDir(m_path).dirName());
