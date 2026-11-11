@@ -40,6 +40,9 @@ public:
     void nextTab();
     void previousTab();
 
+    // Applies to every tab, including ones opened later.
+    void setShowHidden(bool show);
+
     QList<TabState> state() const;
     // Replaces all tabs. An empty list leaves a single tab at the home folder.
     void restore(const QList<TabState> &tabs, int currentIndex);
@@ -58,14 +61,15 @@ private:
     FilePanel *addPanel(int index, const TabState &state);
     void adoptPanel(FilePanel *panel, int index);
     void moveTabTo(FilePanel *panel, PanelTabs *target, int index);
-    void startTabDrag(int index);
+    void startTabDrag(FilePanel *panel);
     bool acceptsTabDrop(const QMimeData *mime) const;
 
     // The tab being dragged between sides. Drags never cross processes.
     static QPointer<PanelTabs> s_dragSource;
     static QPointer<FilePanel> s_dragPanel;
 
-    int m_pressIndex = -1;
+    bool m_showHidden = false;
+    QPointer<FilePanel> m_pressPanel;
     QPoint m_pressPos;
     void closeTab(int index);
     void updateTitle(FilePanel *panel);

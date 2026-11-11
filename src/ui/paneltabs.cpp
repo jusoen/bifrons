@@ -7,6 +7,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QTabBar>
+#include <QTimer>
 
 #include <algorithm>
 
@@ -59,22 +60,24 @@ bool PanelTabs::eventFilter(QObject *watched, QEvent *event)
     switch (event->type()) {
     case QEvent::MouseButtonPress: {
         const auto *mouse = static_cast<QMouseEvent *>(event);
-        m_pressIndex = mouse->button() == Qt::LeftButton ? tabBar()->tabAt(mouse->position().toPoint()) : -1;
+        const int index = mouse->button() == Qt::LeftButton ? tabBar()->tabAt(mouse->position().toPoint()) : -1;
+        // Track the panel, not the index: the bar may reorder tabs before the drag leaves it.
+        m_pressPanel = index >= 0 ? qobject_cast<FilePanel *>(widget(index)) : nullptr;
         m_pressPos = mouse->position().toPoint();
         break;
     }
     case QEvent::MouseMove: {
         const auto *mouse = static_cast<QMouseEvent *>(event);
         const QRect zone = tabBar()->rect().adjusted(-DragOutMargin, -DragOutMargin, DragOutMargin, DragOutMargin);
-        if (m_pressIndex >= 0 && (mouse->buttons() & Qt::LeftButton) && !zone.contains(mouse->position().toPoint())) {
-            startTabDrag(m_pressIndex);
+        if (m_pressPanel && (mouse->buttons() & Qt::LeftButton) && !zone.contains(mouse->position().toPoint())) {
+            startTabDrag(m_pressPanel);
             return true;
         }
         break;
     }
     case QEvent::MouseButtonRelease: {
         const auto *mouse = static_cast<QMouseEvent *>(event);
-        m_pressIndex = -1;
+        m_pressPanel = nullptr;
         // Middle-click closes a tab, as in DC and browsers.
         if (mouse->button() == Qt::MiddleButton) {
             closeTab(tabBar()->tabAt(mouse->position().toPoint()));
@@ -88,13 +91,17 @@ bool PanelTabs::eventFilter(QObject *watched, QEvent *event)
     return QTabWidget::eventFilter(watched, event);
 }
 
-void PanelTabs::startTabDrag(int index)
+void PanelTabs::startTabDrag(FilePanel *panel)
 {
-    m_pressIndex = -1;
+    m_pressPanel = nullptr;
     // End the tab bar's own in-bar move first, or it stays stuck mid-drag.
     QMouseEvent release(QEvent::MouseButtonRelease, QPointF(m_pressPos), tabBar()->mapToGlobal(QPointF(m_pressPos)),
                         Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     QCoreApplication::sendEvent(tabBar(), &release);
+    const int index = indexOf(panel);
+    if (index < 0) {
+        return;
+    }
 
     auto *mime = new QMimeData;
     mime->setData(QLatin1String(TabMimeType), QByteArray());
@@ -102,7 +109,7 @@ void PanelTabs::startTabDrag(int index)
     drag.setMimeData(mime);
     drag.setPixmap(tabBar()->grab(tabBar()->tabRect(index)));
     s_dragSource = this;
-    s_dragPanel = qobject_cast<FilePanel *>(widget(index));
+    s_dragPanel = panel;
     (void)drag.exec(Qt::MoveAction);
     s_dragSource = nullptr;
     s_dragPanel = nullptr;
@@ -140,7 +147,12 @@ void PanelTabs::dropEvent(QDropEvent *event)
     }
     int index = -1;
     if (tabBar()->isVisible()) {
-        index = tabBar()->tabAt(tabBar()->mapFrom(this, event->position().toPoint()));
+        const QPoint pos = tabBar()->mapFrom(this, event->position().toPoint());
+        index = tabBar()->tabAt(pos);
+        // The right half of a tab means "after it".
+        if (index >= 0 && pos.x() > tabBar()->tabRect(index).center().x()) {
+            ++index;
+        }
     }
     if (index < 0) {
         index = count();
@@ -163,10 +175,16 @@ void PanelTabs::moveTabTo(FilePanel *panel, PanelTabs *target, int index)
     disconnect(panel, nullptr, this, nullptr);
     target->adoptPanel(panel, index);
     target->setCurrentWidget(panel);
+    // Windows restores focus to the drag source when the drag ends, so re-assert it afterwards.
+    QTimer::singleShot(0, panel, [target, panel] {
+        panel->focusView();
+        emit target->panelActivated(panel);
+    });
 }
 
 void PanelTabs::adoptPanel(FilePanel *panel, int index)
 {
+    panel->setShowHidden(m_showHidden);
     connect(panel, &FilePanel::activated, this, &PanelTabs::panelActivated);
     connect(panel, &FilePanel::switchPanelRequested, this, &PanelTabs::switchPanelRequested);
     connect(panel, &FilePanel::pathChanged, this, [this, panel] { updateTitle(panel); });
@@ -232,6 +250,14 @@ void PanelTabs::previousTab()
     }
 }
 
+void PanelTabs::setShowHidden(bool show)
+{
+    m_showHidden = show;
+    for (FilePanel *panel : panels()) {
+        panel->setShowHidden(show);
+    }
+}
+
 QList<TabState> PanelTabs::state() const
 {
     QList<TabState> tabs;
@@ -262,6 +288,7 @@ FilePanel *PanelTabs::addPanel(int index, const TabState &state)
 {
     auto *panel = new FilePanel(m_source, this);
     panel->setSort(state.sortColumn, state.sortOrder);
+    panel->setShowHidden(m_showHidden);
     adoptPanel(panel, index);
     panel->setPath(LocalFileSource::nearestExistingDir(state.path));
     return panel;

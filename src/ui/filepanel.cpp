@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
+#include <QMouseEvent>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QTableView>
@@ -88,6 +89,7 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
     m_view->horizontalHeader()->setSortIndicator(static_cast<int>(SortColumn::Name), Qt::AscendingOrder);
     m_view->setSortingEnabled(true);
     m_view->installEventFilter(this);
+    m_view->viewport()->installEventFilter(this);
 
     m_pathEdit = new QLineEdit(this);
     m_pathEdit->installEventFilter(this);
@@ -279,6 +281,11 @@ void FilePanel::focusView()
     m_view->setFocus();
 }
 
+void FilePanel::setShowHidden(bool show)
+{
+    m_model->setShowHidden(show);
+}
+
 SortColumn FilePanel::sortColumn() const
 {
     return m_model->sortColumn();
@@ -300,12 +307,84 @@ bool FilePanel::eventFilter(QObject *watched, QEvent *event)
         emit activated(this);
         return QWidget::eventFilter(watched, event);
     }
+    if (watched == m_view->viewport() && event->type() == QEvent::MouseButtonPress) {
+        const auto *mouse = static_cast<QMouseEvent *>(event);
+        const int row = m_view->rowAt(mouse->position().toPoint().y());
+        const Qt::KeyboardModifiers mods = mouse->modifiers();
+        if (mouse->button() == Qt::LeftButton && row >= 0
+            && (mods == Qt::ControlModifier || mods == Qt::ShiftModifier)) {
+            if (mods == Qt::ControlModifier) {
+                // As in Explorer, the file under the cursor joins the first Ctrl+click selection.
+                const int current = m_view->currentIndex().row();
+                if (m_model->markedCount() == 0 && current != row && m_model->itemAt(current) != nullptr) {
+                    m_model->toggleMark(current);
+                }
+                m_model->toggleMark(row);
+            } else {
+                const int anchor = m_view->currentIndex().isValid() ? m_view->currentIndex().row() : row;
+                m_model->markRange(anchor, row, true);
+            }
+            m_view->setCurrentIndex(m_model->index(row, 0));
+            m_view->setFocus();
+            return true;
+        }
+        return QWidget::eventFilter(watched, event);
+    }
     if (watched != m_view || event->type() != QEvent::KeyPress) {
         return QWidget::eventFilter(watched, event);
     }
 
     const auto *key = static_cast<QKeyEvent *>(event);
     const Qt::KeyboardModifiers mods = key->modifiers() & ~Qt::KeypadModifier;
+    if (mods == Qt::ShiftModifier) {
+        const int current = m_view->currentIndex().isValid() ? m_view->currentIndex().row() : 0;
+        const int last = m_model->rowCount() - 1;
+        const int page = std::max(1, m_view->viewport()->height() / std::max(1, m_view->rowHeight(0)) - 1);
+        int target = -1;
+        switch (key->key()) {
+        case Qt::Key_Up:
+            target = current - 1;
+            break;
+        case Qt::Key_Down:
+            target = current + 1;
+            break;
+        case Qt::Key_PageUp:
+            target = current - page;
+            break;
+        case Qt::Key_PageDown:
+            target = current + page;
+            break;
+        case Qt::Key_Home:
+            target = 0;
+            break;
+        case Qt::Key_End:
+            target = last;
+            break;
+        default:
+            break;
+        }
+        if (target != -1 || key->key() == Qt::Key_Up) {
+            if (last < 0) {
+                return true;
+            }
+            target = std::clamp(target, 0, last);
+            // Up/Down mark the row being left, like DC. Longer jumps mark the whole span.
+            const bool single = key->key() == Qt::Key_Up || key->key() == Qt::Key_Down;
+            m_model->markRange(current, single ? current : target, true);
+            const QModelIndex index = m_model->index(target, 0);
+            m_view->setCurrentIndex(index);
+            m_view->scrollTo(index);
+            return true;
+        }
+    }
+    if (mods == Qt::ControlModifier && key->key() == Qt::Key_A) {
+        markAll(true);
+        return true;
+    }
+    if (mods == Qt::NoModifier && key->key() == Qt::Key_Escape) {
+        markAll(false);
+        return true;
+    }
     switch (key->key()) {
     case Qt::Key_Tab:
         if (mods == Qt::NoModifier) {
@@ -349,6 +428,11 @@ bool FilePanel::eventFilter(QObject *watched, QEvent *event)
         break;
     }
     return QWidget::eventFilter(watched, event);
+}
+
+void FilePanel::markAll(bool mark)
+{
+    m_model->markAll(mark);
 }
 
 void FilePanel::openCurrent()

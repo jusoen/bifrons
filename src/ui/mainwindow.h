@@ -7,6 +7,7 @@
 
 #include "core/fileoperation.h"
 #include "core/localfileoperation.h"
+#include "core/renameengine.h"
 
 class QSplitter;
 
@@ -32,7 +33,9 @@ protected:
 
 private:
     void createCommands();
+    void createMenus();
     void setActivePanel(FilePanel *panel);
+    void setShowHidden(bool show);
     PanelTabs *activeSide() const;
     FilePanel *otherPanel() const;
 
@@ -44,6 +47,7 @@ private:
     void cmRefresh();
 
     void cmSearch();
+    void cmMultiRename();
     void transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &baseDir,
                   const QString &title, const QString &label, const QString &defaultDestination);
     void runOperation(FileOperation *op, const QString &title);
@@ -61,7 +65,9 @@ private:
     QPointer<FilePanel> m_active;
     OperationRunner *m_runner = nullptr;
     FindDialog *m_find = nullptr;
+    QList<RenameStep> m_lastRename;
     bool m_closePending = false;
+    bool m_showHidden = false;
 };
 
 } // namespace dcpp

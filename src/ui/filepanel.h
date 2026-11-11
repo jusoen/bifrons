@@ -48,6 +48,10 @@ public:
     void setActive(bool active);
     void focusView();
 
+    void setShowHidden(bool show);
+    void markByMaskPrompt(bool mark);
+    void markAll(bool mark);
+
     SortColumn sortColumn() const;
     Qt::SortOrder sortOrder() const;
     void setSort(SortColumn column, Qt::SortOrder order);
@@ -66,7 +70,6 @@ private:
     void openCurrent();
     void goParent();
     void markAndMoveDown();
-    void markByMaskPrompt(bool mark);
     void selectName(const QString &name);
     void updateStatus();
     void updateDriveCombo();

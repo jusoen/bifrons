@@ -3,6 +3,9 @@
 #include <QCloseEvent>
 #include <QDir>
 #include <QInputDialog>
+#include <QAction>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
 #include <QSplitter>
@@ -16,6 +19,7 @@
 #include "ui/commandregistry.h"
 #include "ui/filepanel.h"
 #include "ui/finddialog.h"
+#include "ui/multirenamedialog.h"
 #include "ui/operationrunner.h"
 #include "ui/paneltabs.h"
 
@@ -60,6 +64,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     createCommands();
+    createMenus();
 
     setWindowTitle(appDisplayName());
     statusBar()->hide();
@@ -70,23 +75,73 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::createCommands()
 {
     m_commands = new CommandRegistry(this);
-    m_commands->add(QStringLiteral("cm_Copy"), tr("Copy"), Qt::Key_F5, [this] { cmCopy(); });
-    m_commands->add(QStringLiteral("cm_Rename"), tr("Move"), Qt::Key_F6, [this] { cmRename(); });
-    m_commands->add(QStringLiteral("cm_RenameOnly"), tr("Rename"), Qt::SHIFT | Qt::Key_F6,
+    m_commands->add(QStringLiteral("cm_Copy"), tr("&Copy…"), Qt::Key_F5, [this] { cmCopy(); });
+    m_commands->add(QStringLiteral("cm_Rename"), tr("&Move…"), Qt::Key_F6, [this] { cmRename(); });
+    m_commands->add(QStringLiteral("cm_RenameOnly"), tr("&Rename…"), Qt::SHIFT | Qt::Key_F6,
                     [this] { cmRenameOnly(); });
-    m_commands->add(QStringLiteral("cm_MakeDir"), tr("New Folder"), Qt::Key_F7, [this] { cmMakeDir(); });
-    m_commands->add(QStringLiteral("cm_Delete"), tr("Delete"), Qt::Key_F8, [this] { cmDelete(); });
-    m_commands->add(QStringLiteral("cm_Refresh"), tr("Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
-    m_commands->add(QStringLiteral("cm_Exit"), tr("Exit"), Qt::ALT | Qt::Key_X, [this] { close(); });
-    m_commands->add(QStringLiteral("cm_Search"), tr("Find Files"), Qt::ALT | Qt::Key_F7, [this] { cmSearch(); });
-    m_commands->add(QStringLiteral("cm_NewTab"), tr("New Tab"), Qt::CTRL | Qt::Key_T,
+    m_commands->add(QStringLiteral("cm_MakeDir"), tr("&New Folder…"), Qt::Key_F7, [this] { cmMakeDir(); });
+    m_commands->add(QStringLiteral("cm_Delete"), tr("&Delete…"), Qt::Key_F8, [this] { cmDelete(); });
+    m_commands->add(QStringLiteral("cm_Refresh"), tr("&Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
+    m_commands->add(QStringLiteral("cm_Exit"), tr("E&xit"), Qt::ALT | Qt::Key_X, [this] { close(); });
+    QAction *hidden = m_commands->add(QStringLiteral("cm_ShowSysFiles"), tr("Show &Hidden Files"),
+                                      Qt::CTRL | Qt::Key_Period, [this] { setShowHidden(!m_showHidden); });
+    hidden->setCheckable(true);
+    // + and - stay panel keys (a window shortcut would steal them from text fields), so no shortcut here.
+    m_commands->add(QStringLiteral("cm_MarkPlus"), tr("&Select a Group…\t+"), QKeySequence(),
+                    [this] { m_active->markByMaskPrompt(true); });
+    m_commands->add(QStringLiteral("cm_MarkMinus"), tr("&Unselect a Group…\t-"), QKeySequence(),
+                    [this] { m_active->markByMaskPrompt(false); });
+    m_commands->add(QStringLiteral("cm_MarkMarkAll"), tr("Select &All\tCtrl+A"), QKeySequence(),
+                    [this] { m_active->markAll(true); });
+    m_commands->add(QStringLiteral("cm_MarkUnmarkAll"), tr("U&nselect All"), QKeySequence(),
+                    [this] { m_active->markAll(false); });
+    m_commands->add(QStringLiteral("cm_About"), tr("&About DC++"), QKeySequence(), [this] {
+        QMessageBox::about(this, tr("About %1").arg(appDisplayName()),
+                           tr("%1 %2\n\nA dual-pane file manager inspired by Double Commander.\nMIT licence.")
+                               .arg(appDisplayName(), appVersion()));
+    });
+    m_commands->add(QStringLiteral("cm_MultiRename"), tr("Multi-Rena&me…"), Qt::CTRL | Qt::Key_M,
+                    [this] { cmMultiRename(); });
+    m_commands->add(QStringLiteral("cm_Search"), tr("&Find Files…"), Qt::ALT | Qt::Key_F7, [this] { cmSearch(); });
+    m_commands->add(QStringLiteral("cm_NewTab"), tr("&New Tab"), Qt::CTRL | Qt::Key_T,
                     [this] { activeSide()->newTab(); });
-    m_commands->add(QStringLiteral("cm_CloseTab"), tr("Close Tab"), Qt::CTRL | Qt::Key_W,
+    m_commands->add(QStringLiteral("cm_CloseTab"), tr("&Close Tab"), Qt::CTRL | Qt::Key_W,
                     [this] { activeSide()->closeCurrentTab(); });
-    m_commands->add(QStringLiteral("cm_NextTab"), tr("Next Tab"), Qt::CTRL | Qt::Key_Tab,
+    m_commands->add(QStringLiteral("cm_NextTab"), tr("Ne&xt Tab"), Qt::CTRL | Qt::Key_Tab,
                     [this] { activeSide()->nextTab(); });
-    m_commands->add(QStringLiteral("cm_PrevTab"), tr("Previous Tab"), Qt::CTRL | Qt::SHIFT | Qt::Key_Tab,
+    m_commands->add(QStringLiteral("cm_PrevTab"), tr("&Previous Tab"), Qt::CTRL | Qt::SHIFT | Qt::Key_Tab,
                     [this] { activeSide()->previousTab(); });
+}
+
+void MainWindow::createMenus()
+{
+    const auto addMenu = [this](const QString &title, std::initializer_list<const char *> commands) {
+        QMenu *menu = menuBar()->addMenu(title);
+        for (const char *name : commands) {
+            if (name == nullptr) {
+                menu->addSeparator();
+                continue;
+            }
+            QAction *action = m_commands->action(QLatin1String(name));
+            Q_ASSERT(action != nullptr);
+            menu->addAction(action);
+        }
+    };
+    addMenu(tr("&File"), {"cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete", nullptr,
+                          "cm_MultiRename", nullptr, "cm_Exit"});
+    addMenu(tr("&Mark"), {"cm_MarkPlus", "cm_MarkMinus", nullptr, "cm_MarkMarkAll", "cm_MarkUnmarkAll"});
+    addMenu(tr("&Commands"), {"cm_Search", nullptr, "cm_Refresh"});
+    addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
+    addMenu(tr("&View"), {"cm_ShowSysFiles"});
+    addMenu(tr("&Help"), {"cm_About"});
+}
+
+void MainWindow::setShowHidden(bool show)
+{
+    m_showHidden = show;
+    m_commands->action(QStringLiteral("cm_ShowSysFiles"))->setChecked(show);
+    m_left->setShowHidden(show);
+    m_right->setShowHidden(show);
 }
 
 PanelTabs *MainWindow::activeSide() const
@@ -205,6 +260,33 @@ void MainWindow::cmDelete()
     runOperation(new LocalFileOperation(LocalFileOperation::Kind::Delete, items), tr("Delete"));
 }
 
+void MainWindow::cmMultiRename()
+{
+    QList<RenameItem> items;
+    for (const QString &path : m_active->selectedPaths()) {
+        const QFileInfo info(path);
+        items.append({path, info.isDir(), info.lastModified()});
+    }
+    if (items.isEmpty()) {
+        return;
+    }
+    MultiRenameDialog dialog(items, !m_lastRename.isEmpty(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    if (dialog.undoRequested()) {
+        const RenameResult undone = undoRenames(m_lastRename);
+        if (undone.ok) {
+            m_lastRename.clear();
+        } else {
+            QMessageBox::warning(this, tr("Multi-Rename"), tr("Nothing was undone.\n\n%1").arg(undone.error));
+        }
+    } else {
+        m_lastRename = dialog.performed();
+    }
+    cmRefresh();
+}
+
 void MainWindow::cmSearch()
 {
     if (m_find == nullptr) {
@@ -299,6 +381,8 @@ void MainWindow::loadSettings()
         (void)m_splitter->restoreState(split);
     }
 
+    setShowHidden(s.value(QStringLiteral("view/showHidden"), false).toBool());
+
     for (PanelTabs *side : {m_left, m_right}) {
         s.beginGroup(side == m_left ? QStringLiteral("left") : QStringLiteral("right"));
         QList<TabState> tabs;
@@ -329,6 +413,7 @@ void MainWindow::saveSettings() const
     QSettings s = settingsStore();
     s.setValue(QStringLiteral("window/geometry"), saveGeometry());
     s.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
+    s.setValue(QStringLiteral("view/showHidden"), m_showHidden);
     s.setValue(QStringLiteral("activePanel"),
                activeSide() == m_right ? QStringLiteral("right") : QStringLiteral("left"));
 

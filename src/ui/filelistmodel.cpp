@@ -5,6 +5,8 @@
 #include <QLocale>
 #include <QStyle>
 
+#include <algorithm>
+
 namespace dcpp {
 
 FileListModel::FileListModel(QObject *parent)
@@ -14,10 +16,30 @@ FileListModel::FileListModel(QObject *parent)
 {
 }
 
+void FileListModel::setShowHidden(bool show)
+{
+    if (show == m_showHidden) {
+        return;
+    }
+    m_showHidden = show;
+    setItems(m_all, m_showParent, true);
+}
+
+bool FileListModel::showHidden() const
+{
+    return m_showHidden;
+}
+
 void FileListModel::setItems(FileItemList items, bool showParent, bool keepMarks)
 {
     beginResetModel();
-    m_items = std::move(items);
+    m_all = std::move(items);
+    m_items.clear();
+    for (const FileItem &item : std::as_const(m_all)) {
+        if (m_showHidden || !item.isHidden) {
+            m_items.append(item);
+        }
+    }
     m_showParent = showParent;
     sortFileItems(m_items, m_sortColumn, m_sortOrder);
     if (keepMarks) {
@@ -200,6 +222,33 @@ void FileListModel::toggleMark(int row)
     }
     emitRowChanged(row);
     emit marksChanged();
+}
+
+void FileListModel::markRange(int fromRow, int toRow, bool mark)
+{
+    if (rowCount() == 0) {
+        return;
+    }
+    const int first = std::clamp(std::min(fromRow, toRow), 0, rowCount() - 1);
+    const int last = std::clamp(std::max(fromRow, toRow), 0, rowCount() - 1);
+    for (int row = first; row <= last; ++row) {
+        const FileItem *item = itemAt(row);
+        if (item == nullptr) {
+            continue;
+        }
+        if (mark) {
+            m_marked.insert(item->name);
+        } else {
+            m_marked.remove(item->name);
+        }
+    }
+    emit dataChanged(index(first, 0), index(last, columnCount() - 1), {Qt::ForegroundRole});
+    emit marksChanged();
+}
+
+void FileListModel::markAll(bool mark)
+{
+    markRange(0, rowCount() - 1, mark);
 }
 
 void FileListModel::markByMask(const FileMask &mask, bool mark)

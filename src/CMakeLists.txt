@@ -15,6 +15,8 @@ add_library(dcpp_core STATIC
     core/localfileoperation.cpp
     core/localfilesource.h
     core/localfilesource.cpp
+    core/renameengine.h
+    core/renameengine.cpp
     core/searchengine.h
     core/searchengine.cpp
     core/searchresultfilesource.h
@@ -36,6 +38,8 @@ qt_add_executable(dcpp WIN32 MACOSX_BUNDLE
     ui/finddialog.cpp
     ui/filepanel.h
     ui/filepanel.cpp
+    ui/multirenamedialog.h
+    ui/multirenamedialog.cpp
     ui/mainwindow.h
     ui/mainwindow.cpp
     ui/operationrunner.h

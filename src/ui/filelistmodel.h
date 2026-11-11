@@ -18,6 +18,9 @@ public:
     explicit FileListModel(QObject *parent = nullptr);
 
     void setItems(FileItemList items, bool showParent, bool keepMarks);
+    // Hiding drops marks on hidden entries.
+    void setShowHidden(bool show);
+    bool showHidden() const;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -35,6 +38,9 @@ public:
     int rowOfName(const QString &name) const;
 
     void toggleMark(int row);
+    // Rows in either order. The ".." row is never marked.
+    void markRange(int fromRow, int toRow, bool mark);
+    void markAll(bool mark);
     void markByMask(const FileMask &mask, bool mark);
     QStringList markedNames() const;
     int markedCount() const;
@@ -49,9 +55,11 @@ private:
     int itemIndex(int row) const;
     void emitRowChanged(int row);
 
+    FileItemList m_all;
     FileItemList m_items;
     QSet<QString> m_marked;
     bool m_showParent = false;
+    bool m_showHidden = false;
     SortColumn m_sortColumn = SortColumn::Name;
     Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
     QIcon m_dirIcon;
