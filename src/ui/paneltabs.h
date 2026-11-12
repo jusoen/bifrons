@@ -38,6 +38,8 @@ public:
     QList<FilePanel *> panels() const;
     // Restyles the selected tab for the side that has focus.
     void setFocusedSide(bool focused);
+    // Re-applies colours after a theme switch, here and in every tab.
+    void refreshColours();
 
     // Opens a tab after the current one showing the same folder, and switches to it.
     void newTab();
@@ -103,6 +105,7 @@ private:
 
     bool m_showHidden = false;
     bool m_showFolderSizes = false;
+    bool m_focusedSide = false;
     QPointer<FilePanel> m_pressPanel;
     QPoint m_pressPos;
     // Every tab's image at press, before the bar's own move starts sliding them.

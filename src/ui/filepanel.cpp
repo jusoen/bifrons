@@ -405,6 +405,11 @@ void FilePanel::setActive(bool active)
     m_view->setPalette(palette);
 }
 
+void FilePanel::refreshColours()
+{
+    setActive(m_active);
+}
+
 void FilePanel::focusView()
 {
     m_view->setFocus();

@@ -52,6 +52,8 @@ public:
     QString currentName() const;
 
     void setActive(bool active);
+    // Re-applies colours after a theme switch.
+    void refreshColours();
     void focusView();
 
     // Folder history of this panel, newest last.

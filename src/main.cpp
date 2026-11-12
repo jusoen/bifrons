@@ -32,10 +32,15 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(bifrons::appOrganisation());
-    QApplication::setApplicationDisplayName(bifrons::appDisplayName());
+    // Qt appends this to window titles that differ from it, so it carries the version as well.
+    QApplication::setApplicationDisplayName(
+        QStringLiteral("%1 %2").arg(bifrons::appDisplayName(), bifrons::appVersion()));
     QApplication::setApplicationVersion(bifrons::appVersion());
     QApplication::setOrganizationName(bifrons::appOrganisation());
-    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/bifrons.png")));
+    // ICO gives the hand-tuned small sizes. PNG adds 512 px and covers a missing ICO plugin.
+    QIcon appIcon(QStringLiteral(":/icons/bifrons.ico"));
+    appIcon.addFile(QStringLiteral(":/icons/bifrons.png"));
+    QApplication::setWindowIcon(appIcon);
     migrateLegacySettings();
 
     bifrons::MainWindow window;

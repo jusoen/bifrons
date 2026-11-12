@@ -98,15 +98,19 @@ if(BIFRONS_DEMO_OPERATION)
     target_compile_definitions(bifrons PRIVATE BIFRONS_DEMO_OPERATION)
 endif()
 
-# App icon (Split Folder). bifrons.svg is the source, bifrons.png and bifrons.ico are rendered from it.
+# App icon (Framed Gate). bifrons.svg is the source, bifrons.png and bifrons.ico are rendered from it,
+# except the 16 px .ico image, which is a hand pixel map.
 set(_icon_dir "${PROJECT_SOURCE_DIR}/resources/icons")
 set_source_files_properties("${_icon_dir}/bifrons.png" PROPERTIES QT_RESOURCE_ALIAS "bifrons.png")
-qt_add_resources(bifrons "app_icon" PREFIX "/icons" FILES "${_icon_dir}/bifrons.png")
+set_source_files_properties("${_icon_dir}/bifrons.ico" PROPERTIES QT_RESOURCE_ALIAS "bifrons.ico")
+qt_add_resources(bifrons "app_icon" PREFIX "/icons" FILES "${_icon_dir}/bifrons.ico" "${_icon_dir}/bifrons.png")
 if(WIN32)
     set(_icon_rc "${CMAKE_CURRENT_BINARY_DIR}/bifrons_icon.rc")
     file(TO_NATIVE_PATH "${_icon_dir}/bifrons.ico" _icon_ico)
     string(REPLACE "\\" "\\\\" _icon_ico "${_icon_ico}")
     file(CONFIGURE OUTPUT "${_icon_rc}" CONTENT "IDI_ICON1 ICON \"${_icon_ico}\"\n")
+    # The resource compiler does not report the .ico as a dependency, so a changed icon needs this to relink.
+    set_source_files_properties("${_icon_rc}" PROPERTIES OBJECT_DEPENDS "${_icon_dir}/bifrons.ico")
     target_sources(bifrons PRIVATE "${_icon_rc}")
 endif()
 

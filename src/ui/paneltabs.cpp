@@ -498,14 +498,40 @@ void PanelTabs::setFocusedSide(bool focused)
 {
     // The focused side is already marked by its blue address bar, so its tab drops the underline.
     // The border stays 3px either way so the tab height does not jump.
-    const QString underline = focused ? QStringLiteral("transparent") : QStringLiteral("palette(highlight)");
+    m_focusedSide = focused;
+    // Mixed from window and text, because the dark palette's window, base and mid roles are too close to tell apart.
+    const QPalette pal = palette();
+    const QColor window = pal.color(QPalette::Window);
+    const QColor text = pal.color(QPalette::WindowText);
+    const auto mix = [&window, &text](qreal amount) {
+        return QColor::fromRgbF(window.redF() + (text.redF() - window.redF()) * amount,
+                                window.greenF() + (text.greenF() - window.greenF()) * amount,
+                                window.blueF() + (text.blueF() - window.blueF()) * amount)
+            .name();
+    };
+    constexpr int DarkLightness = 128;
+    const bool dark = window.lightness() < DarkLightness;
+    const QString selected = dark ? mix(0.18) : pal.color(QPalette::Base).name();
+    // Filled with the tab colour, not transparent, so the darker bar does not show through as a line.
+    const QString underline = focused ? selected : QStringLiteral("palette(highlight)");
     tabBar()->setStyleSheet(QStringLiteral(
-        "QTabBar::tab { padding: 4px 12px; margin-right: 2px; border: 1px solid palette(mid);"
+        "QTabBar::tab { padding: 4px 12px; margin-right: 2px; border: 1px solid %2;"
         "  border-bottom: 3px solid transparent; border-top-left-radius: 3px; border-top-right-radius: 3px;"
-        "  background: palette(window); color: palette(mid); }"
-        "QTabBar::tab:hover:!selected { color: palette(window-text); }"
-        "QTabBar::tab:selected { font-weight: bold; background: palette(base); color: palette(window-text);"
-        "  border-bottom: 3px solid %1; }").arg(underline));
+        "  background: %3; color: %4; }"
+        "QTabBar::tab:hover:!selected { color: %5; }"
+        "QTabBar::tab:selected { font-weight: bold; background: %6; color: %5;"
+        "  border-bottom: 3px solid %1; }")
+        .arg(underline, mix(dark ? 0.32 : 0.25), window.name(), mix(0.55), text.name(), selected));
+}
+
+void PanelTabs::refreshColours()
+{
+    // An empty palette re-resolves from the parent. Qt does not propagate a theme switch past this widget.
+    setPalette(QPalette());
+    setFocusedSide(m_focusedSide);
+    for (FilePanel *panel : panels()) {
+        panel->refreshColours();
+    }
 }
 
 QList<FilePanel *> PanelTabs::panels() const

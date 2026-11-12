@@ -16,8 +16,12 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QActionGroup>
 #include <QStyle>
+#include <QStyleHints>
 #include <QVBoxLayout>
+
+#include <tuple>
 
 #include "core/appinfo.h"
 #include "core/localfilesource.h"
@@ -92,12 +96,41 @@ QSettings settingsStore()
     return QSettings(QSettings::IniFormat, QSettings::UserScope, appOrganisation(), appOrganisation());
 }
 
+// Settings value for each theme. Anything unrecognised reads as following Windows.
+QString themeKey(Qt::ColorScheme scheme)
+{
+    switch (scheme) {
+    case Qt::ColorScheme::Light:
+        return QStringLiteral("light");
+    case Qt::ColorScheme::Dark:
+        return QStringLiteral("dark");
+    case Qt::ColorScheme::Unknown:
+        break;
+    }
+    return QStringLiteral("system");
+}
+
+Qt::ColorScheme themeFromKey(const QString &key)
+{
+    if (key == QLatin1String("light")) {
+        return Qt::ColorScheme::Light;
+    }
+    if (key == QLatin1String("dark")) {
+        return Qt::ColorScheme::Dark;
+    }
+    return Qt::ColorScheme::Unknown;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_source(std::make_shared<LocalFileSource>())
 {
+    // Applied before any widget exists, so nothing is built in the wrong colours.
+    m_theme = themeFromKey(settingsStore().value(QStringLiteral("view/theme")).toString());
+    QGuiApplication::styleHints()->setColorScheme(m_theme);
+
     m_left = new PanelTabs(m_source, this);
     m_right = new PanelTabs(m_source, this);
     m_leftStack = new QStackedWidget(this);
@@ -149,7 +182,7 @@ MainWindow::MainWindow(QWidget *parent)
     createCommands();
     createMenus();
 
-    setWindowTitle(appDisplayName());
+    setWindowTitle(QStringLiteral("%1 %2").arg(appDisplayName(), appVersion()));
     statusBar()->hide();
     resize(1100, 700);
     loadSettings();
@@ -182,6 +215,18 @@ void MainWindow::createCommands()
     QAction *hidden = m_commands->add(QStringLiteral("cm_ShowSysFiles"), tr("Show &Hidden Files"),
                                       Qt::CTRL | Qt::Key_Period, [this] { setShowHidden(!m_showHidden); });
     hidden->setCheckable(true);
+    auto *themes = new QActionGroup(this);
+    for (const auto &[name, caption, scheme] :
+         {std::tuple{"cm_ThemeSystem", tr("&System"), Qt::ColorScheme::Unknown},
+          std::tuple{"cm_ThemeLight", tr("&Light"), Qt::ColorScheme::Light},
+          std::tuple{"cm_ThemeDark", tr("&Dark"), Qt::ColorScheme::Dark}}) {
+        const Qt::ColorScheme chosen = scheme;
+        QAction *action = m_commands->add(QLatin1String(name), caption, QKeySequence(),
+                                          [this, chosen] { setTheme(chosen); });
+        action->setCheckable(true);
+        action->setChecked(chosen == m_theme);
+        themes->addAction(action);
+    }
     // + and - stay panel keys (a window shortcut would steal them from text fields), so no shortcut here.
     m_commands->add(QStringLiteral("cm_MarkPlus"), tr("&Select a Group…\t+"), QKeySequence(),
                     [this] { m_active->markByMaskPrompt(true); });
@@ -247,7 +292,12 @@ void MainWindow::createMenus()
     addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
     QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
     connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
-    addMenu(tr("&View"), {"cm_QuickView", nullptr, "cm_ShowSysFiles", "cm_ShowFolderSizes"});
+    QMenu *view = addMenu(tr("&View"), {"cm_QuickView", nullptr, "cm_ShowSysFiles", "cm_ShowFolderSizes"});
+    view->addSeparator();
+    QMenu *theme = view->addMenu(tr("&Theme"));
+    for (const char *name : {"cm_ThemeSystem", "cm_ThemeLight", "cm_ThemeDark"}) {
+        theme->addAction(m_commands->action(QLatin1String(name)));
+    }
     addMenu(tr("&Help"), {"cm_About"});
 }
 
@@ -313,6 +363,33 @@ void MainWindow::setShowHidden(bool show)
     m_commands->action(QStringLiteral("cm_ShowSysFiles"))->setChecked(show);
     m_left->setShowHidden(show);
     m_right->setShowHidden(show);
+}
+
+void MainWindow::setTheme(Qt::ColorScheme scheme)
+{
+    m_theme = scheme;
+    QGuiApplication::styleHints()->setColorScheme(scheme);
+    // Saved straight away, like the user tools, so the choice survives a crash.
+    settingsStore().setValue(QStringLiteral("view/theme"), themeKey(scheme));
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    // Deferred because children receive the new palette after this window does.
+    if (event->type() == QEvent::PaletteChange && m_left != nullptr) {
+        QMetaObject::invokeMethod(this, &MainWindow::refreshThemeColours, Qt::QueuedConnection);
+    }
+    QMainWindow::changeEvent(event);
+}
+
+void MainWindow::refreshThemeColours()
+{
+    for (PanelTabs *side : {m_left, m_right}) {
+        side->refreshColours();
+    }
+    for (PanelToolbar *toolbar : std::as_const(m_toolbars)) {
+        toolbar->refreshIcons();
+    }
 }
 
 PanelTabs *MainWindow::activeSide() const

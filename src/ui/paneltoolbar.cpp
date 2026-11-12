@@ -79,7 +79,9 @@ QToolButton *makeButton(QWidget *parent, const QIcon &icon, const QString &tip)
         "QToolButton:hover { background: rgba(128, 128, 128, 55); }"
         "QToolButton:pressed { background: rgba(128, 128, 128, 100); }"
         "QToolButton:disabled { background: transparent; }"));
-    button->setIcon(withFadedDisabled(icon, button->iconSize(), parent->devicePixelRatioF()));
+    if (!icon.isNull()) {
+        button->setIcon(withFadedDisabled(icon, button->iconSize(), parent->devicePixelRatioF()));
+    }
     return button;
 }
 
@@ -137,14 +139,12 @@ PanelToolbar::PanelToolbar(QWidget *parent)
     m_userRow->setSpacing(row->spacing());
     row->addLayout(m_userRow);
     row->addStretch(1);
-    m_back = makeButton(this, themeIcon(QIcon::ThemeIcon::GoPrevious, QStyle::SP_ArrowBack, this),
-                        tr("Back (Alt+Left)"));
-    m_forward = makeButton(this, themeIcon(QIcon::ThemeIcon::GoNext, QStyle::SP_ArrowForward, this),
-                           tr("Forward (Alt+Right)"));
-    m_up = makeButton(this, themeIcon(QIcon::ThemeIcon::GoUp, QStyle::SP_FileDialogToParent, this),
-                      tr("Parent folder"));
-    m_home = makeButton(this, themeIcon(QIcon::ThemeIcon::GoHome, QStyle::SP_DirHomeIcon, this), tr("Home folder"));
-    m_terminal = makeButton(this, terminalIcon(this), tr("Open terminal here"));
+    m_back = makeButton(this, QIcon(), tr("Back (Alt+Left)"));
+    m_forward = makeButton(this, QIcon(), tr("Forward (Alt+Right)"));
+    m_up = makeButton(this, QIcon(), tr("Parent folder"));
+    m_home = makeButton(this, QIcon(), tr("Home folder"));
+    m_terminal = makeButton(this, QIcon(), tr("Open terminal here"));
+    refreshIcons();
     row->addWidget(m_back);
     row->addWidget(m_forward);
     row->addWidget(m_up);
@@ -190,6 +190,19 @@ PanelToolbar::PanelToolbar(QWidget *parent)
     });
 
     refresh();
+}
+
+void PanelToolbar::refreshIcons()
+{
+    const qreal dpr = devicePixelRatioF();
+    const auto apply = [dpr](QToolButton *button, const QIcon &icon) {
+        button->setIcon(withFadedDisabled(icon, button->iconSize(), dpr));
+    };
+    apply(m_back, themeIcon(QIcon::ThemeIcon::GoPrevious, QStyle::SP_ArrowBack, this));
+    apply(m_forward, themeIcon(QIcon::ThemeIcon::GoNext, QStyle::SP_ArrowForward, this));
+    apply(m_up, themeIcon(QIcon::ThemeIcon::GoUp, QStyle::SP_FileDialogToParent, this));
+    apply(m_home, themeIcon(QIcon::ThemeIcon::GoHome, QStyle::SP_DirHomeIcon, this));
+    apply(m_terminal, terminalIcon(this));
 }
 
 void PanelToolbar::setPanel(FilePanel *panel)

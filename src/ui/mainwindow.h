@@ -38,6 +38,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private:
     void createCommands();
@@ -47,6 +48,10 @@ private:
     void setActivePanel(FilePanel *panel);
     void setShowHidden(bool show);
     void setShowFolderSizes(bool show);
+    // Unknown follows Windows. Light and Dark override it for this app only.
+    void setTheme(Qt::ColorScheme scheme);
+    // Re-applies colours that widgets bake in, after the palette has switched.
+    void refreshThemeColours();
     PanelTabs *activeSide() const;
     FilePanel *otherPanel() const;
     // Puts the drive and navigation row above a side's tabs.
@@ -102,6 +107,7 @@ private:
     UserToolList m_userTools;
     bool m_showHidden = false;
     bool m_showFolderSizes = false;
+    Qt::ColorScheme m_theme = Qt::ColorScheme::Unknown;
 };
 
 } // namespace bifrons

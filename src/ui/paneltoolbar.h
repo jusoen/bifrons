@@ -27,6 +27,8 @@ public:
     void setPanel(FilePanel *panel);
     // Rebuilds the user-defined buttons after the built-in ones.
     void setUserTools(const UserToolList &tools);
+    // Redraws the built-in button icons in the current palette.
+    void refreshIcons();
 
 signals:
     void userToolClicked(int index);
