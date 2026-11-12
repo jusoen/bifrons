@@ -11,7 +11,12 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QContextMenuEvent>
+#include <QDrag>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPolygonF>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QTableView>
@@ -22,6 +27,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "core/filemask.h"
+#include "core/transfer.h"
 #include "core/localfilesource.h"
 #include "core/searchresultfilesource.h"
 #include "ui/fileicons.h"
@@ -39,6 +45,34 @@ constexpr int MaxHistory = 50;
 constexpr int ConnectingDelayMs = 300;
 // Folder size counts share a small pool so they never starve folder listing.
 constexpr int FolderSizeThreads = 2;
+
+// Direction-free drag cursor in the Explorer style: a pointer with a small box, plus a "+" for copy.
+QPixmap dragCursor(bool copy, qreal dpr)
+{
+    constexpr int Size = 26;
+    QPixmap pixmap(QSize(Size, Size) * dpr);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    // The tip is at (0, 0), where Qt places the cursor hotspot.
+    const QPolygonF pointer({QPointF(0.5, 0.5), QPointF(0.5, 16), QPointF(4.5, 12.5), QPointF(7.5, 18.5),
+                             QPointF(9.5, 17.5), QPointF(6.8, 11.5), QPointF(11.5, 11.5)});
+    painter.setPen(QPen(Qt::black, 1));
+    painter.setBrush(Qt::white);
+    painter.drawPolygon(pointer);
+    const QRectF badge(12.5, 14.5, 11, 11);
+    painter.setBrush(Qt::white);
+    painter.drawRect(badge);
+    if (copy) {
+        painter.setPen(QPen(Qt::black, 1.6));
+        const QPointF c = badge.center();
+        painter.drawLine(QPointF(c.x() - 3, c.y()), QPointF(c.x() + 3, c.y()));
+        painter.drawLine(QPointF(c.x(), c.y() - 3), QPointF(c.x(), c.y() + 3));
+    }
+    painter.end();
+    return pixmap;
+}
 
 QThreadPool &folderSizePool()
 {
@@ -124,17 +158,27 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
     m_view->setSortingEnabled(true);
     m_view->installEventFilter(this);
     m_view->viewport()->installEventFilter(this);
+    m_view->viewport()->setAcceptDrops(true);
 
     m_pathBar = new PathBar(this);
     m_pathBar->lineEdit()->installEventFilter(this);
     m_status = new QLabel(this);
+    m_filterEdit = new QLineEdit(this);
+    m_filterEdit->setPlaceholderText(tr("Filter (text, or a mask such as *.cpp)"));
+    m_filterEdit->setClearButtonEnabled(true);
+    m_filterEdit->installEventFilter(this);
+    m_filterEdit->hide();
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(2);
     layout->addWidget(m_pathBar);
     layout->addWidget(m_view, 1);
+    layout->addWidget(m_filterEdit);
     layout->addWidget(m_status);
+    connect(m_filterEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        m_model->setNameFilter(text);
+    });
 
     connect(&m_loader, &QFutureWatcher<ListResult>::finished, this, &FilePanel::onLoadFinished);
     connect(m_view, &QTableView::doubleClicked, this, [this] { openCurrent(); });
@@ -146,6 +190,7 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
     connect(m_model, &FileListModel::marksChanged, this, &FilePanel::updateStatus);
     connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this, &FilePanel::currentItemChanged);
     connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        cancelInlineRename();
         m_cursorBeforeReset = currentName();
     });
     connect(m_model, &QAbstractItemModel::modelReset, this, [this] {
@@ -271,7 +316,9 @@ void FilePanel::showMessage(const QString &text)
 void FilePanel::reload()
 {
     if (!m_path.isEmpty()) {
-        loadFrom(m_source, m_path, currentName());
+        const QString select = m_renamedTo.isEmpty() ? currentName() : m_renamedTo;
+        m_renamedTo.clear();
+        loadFrom(m_source, m_path, select);
     }
 }
 
@@ -348,6 +395,18 @@ void FilePanel::enterLocation(const QString &loaded, const FileItemList &items, 
         }
         m_historyTarget = -1;
         emit pathChanged(m_path);
+        m_renamedTo.clear();
+        // A filter belongs to the folder it was typed in, as in DC.
+        if (m_filterEdit->isVisible() || !m_filterEdit->text().isEmpty()) {
+            const bool hadFocus = m_filterEdit->hasFocus();
+            const QSignalBlocker block(m_filterEdit);
+            m_filterEdit->clear();
+            m_filterEdit->hide();
+            m_model->clearNameFilterQuietly();
+            if (hadFocus) {
+                m_view->setFocus();
+            }
+        }
     }
 
     const bool showParent = !m_source->parentPath(m_path).isEmpty();
@@ -541,10 +600,31 @@ bool FilePanel::eventFilter(QObject *watched, QEvent *event)
         emit contextMenuRequested(this, anchor, pos, item != nullptr);
         return true;
     }
+    if (watched == m_view->viewport() && handleDropEvent(event)) {
+        return true;
+    }
+    if (watched == m_view->viewport() && event->type() == QEvent::MouseMove) {
+        const auto *mouse = static_cast<QMouseEvent *>(event);
+        if (m_pressRow >= 0 && (mouse->buttons() & Qt::LeftButton)
+            && (mouse->position().toPoint() - m_pressPos).manhattanLength() >= QApplication::startDragDistance()) {
+            const int row = m_pressRow;
+            m_pressRow = -1;
+            startDrag(row);
+            return true;
+        }
+        return QWidget::eventFilter(watched, event);
+    }
+    if (watched == m_view->viewport() && event->type() == QEvent::MouseButtonRelease) {
+        m_pressRow = -1;
+        return QWidget::eventFilter(watched, event);
+    }
     if (watched == m_view->viewport() && event->type() == QEvent::MouseButtonPress) {
         const auto *mouse = static_cast<QMouseEvent *>(event);
         const int row = m_view->rowAt(mouse->position().toPoint().y());
         const Qt::KeyboardModifiers mods = mouse->modifiers();
+        const bool plainLeft = mouse->button() == Qt::LeftButton && mods == Qt::NoModifier;
+        m_pressRow = plainLeft && m_model->itemAt(row) != nullptr ? row : -1;
+        m_pressPos = mouse->position().toPoint();
         if (mouse->button() == Qt::LeftButton && row >= 0
             && (mods == Qt::ControlModifier || mods == Qt::ShiftModifier)) {
             if (mods == Qt::ControlModifier) {
@@ -561,6 +641,42 @@ bool FilePanel::eventFilter(QObject *watched, QEvent *event)
             m_view->setCurrentIndex(m_model->index(row, 0));
             m_view->setFocus();
             return true;
+        }
+        return QWidget::eventFilter(watched, event);
+    }
+    if (m_renameEdit != nullptr && watched == m_renameEdit) {
+        if (event->type() == QEvent::KeyPress) {
+            const auto *key = static_cast<QKeyEvent *>(event);
+            if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+                commitInlineRename();
+                return true;
+            }
+            if (key->key() == Qt::Key_Escape) {
+                cancelInlineRename();
+                return true;
+            }
+        } else if (event->type() == QEvent::FocusOut) {
+            // Clicking away cancels, so a half-typed name is never applied by accident.
+            QMetaObject::invokeMethod(this, &FilePanel::cancelInlineRename, Qt::QueuedConnection);
+        }
+        return QWidget::eventFilter(watched, event);
+    }
+    if (watched == m_filterEdit && event->type() == QEvent::KeyPress) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if ((key->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+            switch (key->key()) {
+            case Qt::Key_Escape:
+                closeQuickFilter(true);
+                return true;
+            case Qt::Key_Return:
+            case Qt::Key_Enter:
+            case Qt::Key_Down:
+                // Back to the list with the filter kept.
+                focusView();
+                return true;
+            default:
+                break;
+            }
         }
         return QWidget::eventFilter(watched, event);
     }
@@ -616,7 +732,12 @@ bool FilePanel::eventFilter(QObject *watched, QEvent *event)
         return true;
     }
     if (mods == Qt::NoModifier && key->key() == Qt::Key_Escape) {
-        markAll(false);
+        // Esc first closes an open filter, then clears marks.
+        if (m_filterEdit->isVisible()) {
+            closeQuickFilter(true);
+        } else {
+            markAll(false);
+        }
         return true;
     }
     switch (key->key()) {
@@ -747,11 +868,254 @@ void FilePanel::selectName(const QString &name)
 void FilePanel::updateStatus()
 {
     const QLocale locale;
-    m_status->setText(tr("%1 of %2 marked, %3 of %4")
-                          .arg(m_model->markedCount())
+    const QString text = m_model->isFiltered() ? tr("%1 of %2 marked, %3 of %4 (filtered)")
+                                               : tr("%1 of %2 marked, %3 of %4");
+    m_status->setText(text.arg(m_model->markedCount())
                           .arg(m_model->fileCount())
                           .arg(locale.formattedDataSize(m_model->markedSize()),
                                locale.formattedDataSize(m_model->totalSize())));
+}
+
+void FilePanel::startDrag(int row)
+{
+    const FileItem *item = m_model->itemAt(row);
+    if (item == nullptr) {
+        return;
+    }
+    QStringList names = m_model->markedNames();
+    if (!names.contains(item->name)) {
+        names = {item->name};
+    }
+    QList<QUrl> urls;
+    for (const QString &name : std::as_const(names)) {
+        urls.append(QUrl::fromLocalFile(m_source->childPath(m_path, name)));
+    }
+    auto *mime = new QMimeData;
+    mime->setUrls(urls);
+    auto *drag = new QDrag(this);
+    drag->setMimeData(mime);
+    constexpr int DragIconSize = 32;
+    const QIcon icon = m_model->data(m_model->index(row, 0), Qt::DecorationRole).value<QIcon>();
+    drag->setPixmap(icon.pixmap(DragIconSize, devicePixelRatioF()));
+    drag->setDragCursor(dragCursor(false, devicePixelRatioF()), Qt::MoveAction);
+    drag->setDragCursor(dragCursor(true, devicePixelRatioF()), Qt::CopyAction);
+    // The target does the copy or move and the folder watcher shows it, so the result is unused.
+    (void)drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+}
+
+QString FilePanel::dropTarget(const QPoint &pos, const QStringList &sources, int *row) const
+{
+    *row = -1;
+    if (sources.isEmpty() || isShowingResults() || m_unreachable || m_path.isEmpty()) {
+        return QString();
+    }
+    QString target = m_path;
+    const int hit = m_view->rowAt(pos.y());
+    if (m_model->isParentRow(hit)) {
+        target = m_source->parentPath(m_path);
+        *row = hit;
+    } else if (const FileItem *item = m_model->itemAt(hit); item != nullptr && item->isDir) {
+        target = m_source->childPath(m_path, item->name);
+        *row = hit;
+    }
+    if (!transferTargetProblem(sources, target).isEmpty()) {
+        *row = -1;
+        return QString();
+    }
+    return target;
+}
+
+void FilePanel::releaseFolderUnder(const QStringList &paths)
+{
+    const QString here = QDir::cleanPath(m_path);
+    for (const QString &path : paths) {
+        const QString gone = QDir::cleanPath(QDir::fromNativeSeparators(path));
+        if (here.compare(gone, Qt::CaseInsensitive) == 0
+            || here.startsWith(gone + QLatin1Char('/'), Qt::CaseInsensitive)) {
+            const QStringList watched = m_fsWatcher.directories();
+            if (!watched.isEmpty()) {
+                // Returns the paths it could not remove, which only matters for paths never added.
+                (void)m_fsWatcher.removePaths(watched);
+            }
+            m_folderReleased = true;
+            return;
+        }
+    }
+}
+
+void FilePanel::reloadIfReleased()
+{
+    if (m_folderReleased) {
+        m_folderReleased = false;
+        reload();
+    }
+}
+
+QString FilePanel::pasteProblem(const QStringList &sources) const
+{
+    if (isShowingResults()) {
+        return tr("Files cannot be pasted into search results.");
+    }
+    if (m_unreachable || m_path.isEmpty()) {
+        return tr("This folder cannot be reached.");
+    }
+    return transferTargetProblem(sources, m_path);
+}
+
+bool FilePanel::handleDropEvent(QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::DragEnter:
+    case QEvent::DragMove:
+    case QEvent::Drop:
+        break;
+    case QEvent::DragLeave:
+        m_model->setDropRow(-1);
+        return true;
+    default:
+        return false;
+    }
+    auto *drop = static_cast<QDropEvent *>(event);
+    QStringList sources;
+    if (drop->mimeData()->hasUrls()) {
+        for (const QUrl &url : drop->mimeData()->urls()) {
+            if (!url.isLocalFile()) {
+                sources.clear();
+                break;
+            }
+            sources.append(QDir::fromNativeSeparators(url.toLocalFile()));
+        }
+    }
+    if (sources.isEmpty()) {
+        drop->ignore();
+        return true;
+    }
+    if (event->type() == QEvent::DragEnter) {
+        // Accepted here even over a bad spot, so move events keep coming and can accept later.
+        drop->acceptProposedAction();
+    }
+    int row = -1;
+    const QString target = dropTarget(drop->position().toPoint(), sources, &row);
+    m_model->setDropRow(row);
+    if (target.isEmpty()) {
+        drop->ignore();
+        if (event->type() == QEvent::Drop) {
+            m_model->setDropRow(-1);
+        }
+        return true;
+    }
+    // Copy unless Ctrl is held, whichever program the files come from. Shift has no effect.
+    const bool move = drop->modifiers().testFlag(Qt::ControlModifier);
+    if (event->type() != QEvent::Drop) {
+        drop->setDropAction(move ? Qt::MoveAction : Qt::CopyAction);
+        drop->accept();
+        return true;
+    }
+    m_model->setDropRow(-1);
+    // Reported as a copy even for a move, so a source such as Explorer never deletes its originals.
+    drop->setDropAction(Qt::CopyAction);
+    drop->accept();
+    // Queued so the dialog that follows does not open inside the drop, which would freeze the source.
+    QMetaObject::invokeMethod(this, [this, sources, target, move] { emit filesDropped(this, sources, target, move); },
+                              Qt::QueuedConnection);
+    return true;
+}
+
+bool FilePanel::startInlineRename()
+{
+    if (isShowingResults()) {
+        return false;
+    }
+    const int row = m_view->currentIndex().row();
+    const FileItem *item = m_model->itemAt(row);
+    if (item == nullptr || m_renameEdit != nullptr) {
+        return true;
+    }
+    m_renameFrom = item->name;
+    // The edit covers the Name and Ext cells, as the name is edited whole.
+    const QRect nameCell = m_view->visualRect(m_model->index(row, static_cast<int>(SortColumn::Name)));
+    const QRect extCell = m_view->visualRect(m_model->index(row, static_cast<int>(SortColumn::Extension)));
+    m_renameEdit = new QLineEdit(item->name, m_view->viewport());
+    m_renameEdit->setGeometry(nameCell.united(extCell));
+    m_renameEdit->installEventFilter(this);
+    const qsizetype dot = item->name.lastIndexOf(QLatin1Char('.'));
+    if (!item->isDir && dot > 0) {
+        // The extension stays out of the selection, as in Explorer and DC.
+        m_renameEdit->setSelection(0, static_cast<int>(dot));
+    } else {
+        m_renameEdit->selectAll();
+    }
+    m_renameEdit->show();
+    m_renameEdit->setFocus();
+    return true;
+}
+
+void FilePanel::commitInlineRename()
+{
+    if (m_renameEdit == nullptr) {
+        return;
+    }
+    const QString name = m_renameEdit->text().trimmed();
+    if (name.isEmpty() || name == m_renameFrom) {
+        cancelInlineRename();
+        return;
+    }
+    static const QString forbidden = QStringLiteral("\\/:*?\"<>|");
+    for (const QChar c : name) {
+        if (forbidden.contains(c)) {
+            showError(tr("A name cannot contain any of these characters: %1").arg(forbidden));
+            m_renameEdit->setFocus();
+            return;
+        }
+    }
+    // A folder of that name would make the move go inside it. A case-only change is still a rename.
+    const bool caseOnly = name.compare(m_renameFrom, Qt::CaseInsensitive) == 0;
+    if (!caseOnly) {
+        for (const QString &dir : m_model->dirNames()) {
+            if (dir.compare(name, Qt::CaseInsensitive) == 0) {
+                showError(tr("A folder called %1 already exists here.").arg(name));
+                m_renameEdit->setFocus();
+                return;
+            }
+        }
+    }
+    const QString path = m_source->childPath(m_path, m_renameFrom);
+    m_renamedTo = name;
+    cancelInlineRename();
+    emit renameRequested(this, path, name);
+}
+
+void FilePanel::cancelInlineRename()
+{
+    if (m_renameEdit == nullptr) {
+        return;
+    }
+    // Cleared first, because hiding the box moves focus and sends another FocusOut.
+    QLineEdit *edit = m_renameEdit;
+    m_renameEdit = nullptr;
+    const bool hadFocus = edit->hasFocus();
+    edit->hide();
+    edit->deleteLater();
+    if (hadFocus) {
+        m_view->setFocus();
+    }
+}
+
+void FilePanel::showQuickFilter()
+{
+    m_filterEdit->show();
+    m_filterEdit->setFocus();
+    m_filterEdit->selectAll();
+}
+
+void FilePanel::closeQuickFilter(bool focusList)
+{
+    const bool hadFocus = m_filterEdit->hasFocus();
+    m_filterEdit->clear();
+    m_filterEdit->hide();
+    if (focusList || hadFocus) {
+        focusView();
+    }
 }
 
 void FilePanel::updatePathBar()

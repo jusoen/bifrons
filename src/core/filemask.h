@@ -19,4 +19,20 @@ private:
     QList<QRegularExpression> m_patterns;
 };
 
+// Text typed into a panel's quick filter. Plain text matches anywhere in the name, ignoring case.
+// Text containing * or ? is used as a FileMask instead. Empty text matches everything.
+class QuickFilter
+{
+public:
+    explicit QuickFilter(const QString &text = QString());
+
+    bool isEmpty() const;
+    bool matches(const QString &name) const;
+
+private:
+    QString m_text;
+    bool m_wildcard = false;
+    FileMask m_mask;
+};
+
 } // namespace bifrons

@@ -69,13 +69,28 @@ private:
     void cmQuickView();
     void updateQuickView();
     void cmMultiRename();
+    // Copies, or moves after a cut, the files on the clipboard into the active panel's folder.
+    void cmPaste();
     void transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &baseDir,
-                  const QString &title, const QString &label, const QString &defaultDestination);
+                  const QString &title, const QString &label, const QString &defaultDestination,
+                  bool fromDrop = false);
+    // Whether a drag and drop asks before copying or moving. Ticks the View menu entry to match.
+    void setConfirmDrop(bool confirm);
+    // Whether Delete asks first on local drives. Network paths always ask.
+    void setConfirmDelete(bool confirm);
+    // Opens the Hot Keys dialog, then applies and saves the result.
+    void configHotKeys();
     // Queues op on the active side. Each side runs its own operations one at a time in the background.
     void runOperation(FileOperation *op, const QString &title);
+    // Lets every tab showing one of paths, or a folder inside it, release its folder first.
+    void releaseFolders(const QStringList &paths);
     void onOperationFinished(const FileOperation::Result &result);
     bool operationsBusy() const;
     void showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem);
+    // Opens the copy or move dialog for files dropped on panel, with targetDir filled in.
+    void dropFiles(FilePanel *panel, const QStringList &sources, const QString &targetDir, bool move);
+    // Runs an in-place rename from a panel as a move on that panel's side.
+    void renameInPlace(FilePanel *panel, const QString &path, const QString &newName);
     // User toolbar buttons, shared by both sides. side is the toolbar the button was pressed on.
     void runUserTool(int index, PanelTabs *side);
     void editUserTool(int index);
@@ -108,6 +123,8 @@ private:
     bool m_showHidden = false;
     bool m_showFolderSizes = false;
     Qt::ColorScheme m_theme = Qt::ColorScheme::Unknown;
+    bool m_confirmDrop = true;
+    bool m_confirmDelete = true;
 };
 
 } // namespace bifrons

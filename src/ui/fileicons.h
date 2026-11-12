@@ -15,8 +15,9 @@ namespace bifrons {
 // Shell icons for files, as Explorer shows them. Shared by all panels, used on the UI thread only.
 //
 // Most files get the icon of their extension, looked up once per extension without touching the file.
-// Programs, shortcuts and icon files carry their own icon: those are read on a small background pool
-// and announced through iconReady(). Until then, and if the read fails, the extension icon is shown.
+// Programs, shortcuts, icon files and local folders carry their own icon (a folder's comes from its
+// special role or desktop.ini): those are read on a small background pool and announced through
+// iconReady(). Until then, and if the read fails, the extension or plain folder icon is shown.
 class FileIcons : public QObject
 {
     Q_OBJECT
@@ -36,8 +37,8 @@ private:
     ~FileIcons() override;
 
     QIcon extensionIcon(const QString &suffix);
-    void requestFileIcon(const QString &path);
-    void onFileIconLoaded(const QString &path, const QImage &image);
+    void requestFileIcon(const QString &path, bool isDir);
+    void onFileIconLoaded(const QString &path, const QImage &image, bool isDir);
 
     QIcon m_folderIcon;
     QIcon m_genericFileIcon;

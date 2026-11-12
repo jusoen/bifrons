@@ -7,6 +7,8 @@
 #include <QPixmap>
 #include <QStyle>
 
+#include "core/localfilesource.h"
+
 #if defined(Q_OS_WIN)
 #include <qt_windows.h>
 #include <objbase.h>
@@ -36,8 +38,9 @@ bool hasOwnIcon(const QString &suffix)
 }
 
 #if defined(Q_OS_WIN)
-// Small shell icon for path. With useAttributes the file is never opened, so only the extension matters.
-QImage shellIcon(const QString &path, bool useAttributes)
+// Small shell icon for path. With useAttributes the file is never opened, so only the extension
+// (or, with FILE_ATTRIBUTE_DIRECTORY, "a folder") matters.
+QImage shellIcon(const QString &path, bool useAttributes, DWORD attributes = FILE_ATTRIBUTE_NORMAL)
 {
     SHFILEINFOW info = {};
     const std::wstring native = QDir::toNativeSeparators(path).toStdWString();
@@ -45,7 +48,7 @@ QImage shellIcon(const QString &path, bool useAttributes)
     if (useAttributes) {
         flags |= SHGFI_USEFILEATTRIBUTES;
     }
-    if (SHGetFileInfoW(native.c_str(), FILE_ATTRIBUTE_NORMAL, &info, sizeof(info), flags) == 0
+    if (SHGetFileInfoW(native.c_str(), attributes, &info, sizeof(info), flags) == 0
         || info.hIcon == nullptr) {
         return QImage();
     }
@@ -70,6 +73,13 @@ FileIcons::FileIcons(QObject *parent)
     , m_byPath(MaxPathIcons)
 {
     m_pool.setMaxThreadCount(IconThreads);
+#if defined(Q_OS_WIN)
+    // Explorer's plain folder rather than the Qt style's, so it matches the per-folder icons.
+    const QImage folder = shellIcon(QStringLiteral("folder"), true, FILE_ATTRIBUTE_DIRECTORY);
+    if (!folder.isNull()) {
+        m_folderIcon = QIcon(QPixmap::fromImage(folder));
+    }
+#endif
 }
 
 FileIcons::~FileIcons()
@@ -82,6 +92,15 @@ FileIcons::~FileIcons()
 QIcon FileIcons::icon(const FileItem &item, const QString &path)
 {
     if (item.isDir) {
+#if defined(Q_OS_WIN)
+        // Reading a folder's desktop.ini over the network can stall, so shares keep the plain icon.
+        if (!path.isEmpty() && !LocalFileSource::isNetworkPath(path)) {
+            if (const QIcon *cached = m_byPath.object(path)) {
+                return *cached;
+            }
+            requestFileIcon(path, true);
+        }
+#endif
         return m_folderIcon;
     }
     const QString suffix = item.extension().toLower();
@@ -89,7 +108,7 @@ QIcon FileIcons::icon(const FileItem &item, const QString &path)
         if (const QIcon *cached = m_byPath.object(path)) {
             return *cached;
         }
-        requestFileIcon(path);
+        requestFileIcon(path, false);
     }
     return extensionIcon(suffix);
 }
@@ -119,13 +138,13 @@ QIcon FileIcons::extensionIcon(const QString &suffix)
     return icon;
 }
 
-void FileIcons::requestFileIcon(const QString &path)
+void FileIcons::requestFileIcon(const QString &path, bool isDir)
 {
     if (m_pending.contains(path)) {
         return;
     }
     m_pending.insert(path);
-    m_pool.start([this, path] {
+    m_pool.start([this, path, isDir] {
         QImage image;
 #if defined(Q_OS_WIN)
         // The shell needs COM on the calling thread to resolve shortcuts.
@@ -136,17 +155,17 @@ void FileIcons::requestFileIcon(const QString &path)
         }
 #endif
         // QImage is safe to pass between threads. The pixmap is made on the UI thread.
-        QMetaObject::invokeMethod(this, [this, path, image] { onFileIconLoaded(path, image); },
+        QMetaObject::invokeMethod(this, [this, path, image, isDir] { onFileIconLoaded(path, image, isDir); },
                                   Qt::QueuedConnection);
     });
 }
 
-void FileIcons::onFileIconLoaded(const QString &path, const QImage &image)
+void FileIcons::onFileIconLoaded(const QString &path, const QImage &image, bool isDir)
 {
     m_pending.remove(path);
-    // A failed read caches the extension icon, so the file is not retried on every repaint.
-    const QIcon icon = image.isNull() ? extensionIcon(QFileInfo(path).suffix().toLower())
-                                      : QIcon(QPixmap::fromImage(image));
+    // A failed read caches the fallback icon, so the item is not retried on every repaint.
+    const QIcon fallback = isDir ? m_folderIcon : extensionIcon(QFileInfo(path).suffix().toLower());
+    const QIcon icon = image.isNull() ? fallback : QIcon(QPixmap::fromImage(image));
     m_byPath.insert(path, new QIcon(icon));
     emit iconReady(path);
 }

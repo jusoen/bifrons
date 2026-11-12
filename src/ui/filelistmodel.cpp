@@ -98,13 +98,49 @@ bool FileListModel::showHidden() const
     return m_showHidden;
 }
 
+void FileListModel::setNameFilter(const QString &text)
+{
+    if (text == m_filterText) {
+        return;
+    }
+    m_filterText = text;
+    m_filter = QuickFilter(text);
+    setItems(m_all, m_showParent, true);
+}
+
+void FileListModel::setDropRow(int row)
+{
+    if (row == m_dropRow) {
+        return;
+    }
+    const int old = m_dropRow;
+    m_dropRow = row;
+    for (const int r : {old, row}) {
+        if (r >= 0 && r < rowCount()) {
+            emit dataChanged(index(r, 0), index(r, columnCount() - 1), {Qt::BackgroundRole});
+        }
+    }
+}
+
+void FileListModel::clearNameFilterQuietly()
+{
+    m_filterText.clear();
+    m_filter = QuickFilter();
+}
+
+bool FileListModel::isFiltered() const
+{
+    return !m_filter.isEmpty();
+}
+
 void FileListModel::setItems(FileItemList items, bool showParent, bool keepMarks)
 {
     beginResetModel();
+    m_dropRow = -1;
     m_all = std::move(items);
     m_items.clear();
     for (const FileItem &item : std::as_const(m_all)) {
-        if (m_showHidden || !item.isHidden) {
+        if ((m_showHidden || !item.isHidden) && m_filter.matches(item.name)) {
             m_items.append(item);
         }
     }
@@ -146,6 +182,13 @@ QVariant FileListModel::data(const QModelIndex &index, int role) const
         return QVariant();
     }
     const auto column = static_cast<SortColumn>(index.column());
+
+    if (role == Qt::BackgroundRole && index.row() == m_dropRow) {
+        constexpr int DropTintAlpha = 90;
+        QColor tint = QApplication::palette().color(QPalette::Highlight);
+        tint.setAlpha(DropTintAlpha);
+        return QBrush(tint);
+    }
 
     if (isParentRow(index.row())) {
         if (column == SortColumn::Name && role == Qt::DisplayRole) {

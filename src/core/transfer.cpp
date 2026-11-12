@@ -49,4 +49,30 @@ TransferPlan planTransfer(const QStringList &sources, const QString &destination
     return plan;
 }
 
+QString transferTargetProblem(const QStringList &sources, const QString &targetDir)
+{
+    if (sources.isEmpty()) {
+        return QStringLiteral("Nothing to copy or move.");
+    }
+    if (targetDir.isEmpty()) {
+        return QStringLiteral("No destination folder.");
+    }
+    const QString target = QDir::cleanPath(QDir::fromNativeSeparators(targetDir));
+    bool allFromTarget = true;
+    for (const QString &raw : sources) {
+        const QString source = QDir::cleanPath(QDir::fromNativeSeparators(raw));
+        if (target.compare(source, Qt::CaseInsensitive) == 0
+            || target.startsWith(source + QLatin1Char('/'), Qt::CaseInsensitive)) {
+            return QStringLiteral("A folder cannot go inside itself: %1").arg(QDir::toNativeSeparators(source));
+        }
+        if (QFileInfo(source).absolutePath().compare(target, Qt::CaseInsensitive) != 0) {
+            allFromTarget = false;
+        }
+    }
+    if (allFromTarget) {
+        return QStringLiteral("The items are already in this folder.");
+    }
+    return QString();
+}
+
 } // namespace bifrons

@@ -35,6 +35,13 @@ public:
     // Hiding drops marks on hidden entries.
     void setShowHidden(bool show);
     bool showHidden() const;
+    // Shows only entries matching text (see QuickFilter). Marks on entries it hides are dropped.
+    void setNameFilter(const QString &text);
+    // Drops the filter without rebuilding, for a caller about to call setItems anyway.
+    void clearNameFilterQuietly();
+    bool isFiltered() const;
+    // Tints the folder row a drag is hovering over. -1 clears it.
+    void setDropRow(int row);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -74,6 +81,9 @@ private:
     QSet<QString> m_marked;
     bool m_showParent = false;
     bool m_showHidden = false;
+    QString m_filterText;
+    QuickFilter m_filter;
+    int m_dropRow = -1;
     SortColumn m_sortColumn = SortColumn::Name;
     Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
     QIcon m_dirIcon;

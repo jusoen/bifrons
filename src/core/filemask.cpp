@@ -41,4 +41,27 @@ bool FileMask::isValid() const
     return true;
 }
 
+QuickFilter::QuickFilter(const QString &text)
+    : m_text(text.trimmed())
+    , m_wildcard(m_text.contains(QLatin1Char('*')) || m_text.contains(QLatin1Char('?')))
+    , m_mask(m_wildcard ? m_text : QStringLiteral("*"))
+{
+}
+
+bool QuickFilter::isEmpty() const
+{
+    return m_text.isEmpty();
+}
+
+bool QuickFilter::matches(const QString &name) const
+{
+    if (m_text.isEmpty()) {
+        return true;
+    }
+    if (m_wildcard) {
+        return m_mask.matches(name);
+    }
+    return name.contains(m_text, Qt::CaseInsensitive);
+}
+
 } // namespace bifrons

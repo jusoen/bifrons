@@ -85,6 +85,37 @@ private slots:
         QVERIFY(!planTransfer({}, m_dst, m_src).ok);
         QVERIFY(!planTransfer({m_src}, QStringLiteral("  "), m_src).ok);
     }
+
+    void targetElsewhereIsFine()
+    {
+        QVERIFY(transferTargetProblem({QStringLiteral("C:/a/x.txt")}, QStringLiteral("C:/b")).isEmpty());
+        // One item from elsewhere is enough to make the copy worth doing.
+        QVERIFY(transferTargetProblem({QStringLiteral("C:/b/x.txt"), QStringLiteral("C:/a/y.txt")},
+                                      QStringLiteral("C:/b"))
+                    .isEmpty());
+    }
+
+    void sameFolderIsRefused()
+    {
+        QVERIFY(!transferTargetProblem({QStringLiteral("C:/a/x.txt")}, QStringLiteral("c:/A/")).isEmpty());
+        QVERIFY(!transferTargetProblem({QStringLiteral("C:\\a\\x.txt")}, QStringLiteral("C:/a")).isEmpty());
+        QVERIFY(!transferTargetProblem({QStringLiteral("C:/x.txt")}, QStringLiteral("C:/")).isEmpty());
+        QVERIFY(!transferTargetProblem({QStringLiteral("//srv/share/x")}, QStringLiteral("//srv/share")).isEmpty());
+    }
+
+    void folderIntoItselfIsRefused()
+    {
+        QVERIFY(!transferTargetProblem({QStringLiteral("C:/a")}, QStringLiteral("C:/a")).isEmpty());
+        QVERIFY(!transferTargetProblem({QStringLiteral("C:/a")}, QStringLiteral("C:/A/b/c")).isEmpty());
+        // A sibling whose name only starts the same is not inside.
+        QVERIFY(transferTargetProblem({QStringLiteral("C:/a")}, QStringLiteral("C:/ab")).isEmpty());
+    }
+
+    void emptyTargetProblemInputs()
+    {
+        QVERIFY(!transferTargetProblem({}, QStringLiteral("C:/a")).isEmpty());
+        QVERIFY(!transferTargetProblem({QStringLiteral("C:/a/x")}, QString()).isEmpty());
+    }
 };
 
 QTEST_GUILESS_MAIN(TestTransfer)

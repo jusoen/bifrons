@@ -12,6 +12,7 @@
 #include "core/filesource.h"
 
 class QLabel;
+class QLineEdit;
 class QTableView;
 
 namespace bifrons {
@@ -52,6 +53,18 @@ public:
     QString currentName() const;
 
     void setActive(bool active);
+    // Opens the filter box under the list and focuses it. Typing narrows the list as you go.
+    void showQuickFilter();
+    // Edits the name under the cursor in the list. False where that is not possible (search results),
+    // so the caller can fall back to a dialog.
+    bool startInlineRename();
+    // Why sources cannot be pasted into this panel's folder, or empty when they can.
+    QString pasteProblem(const QStringList &sources) const;
+    // Stops watching this panel's folder when it is one of paths or inside one. Windows cannot
+    // remove or rename a folder while a change watch holds it open.
+    void releaseFolderUnder(const QStringList &paths);
+    // Reloads after releaseFolderUnder let go, so a vanished folder falls back to the nearest one left.
+    void reloadIfReleased();
     // Re-applies colours after a theme switch.
     void refreshColours();
     void focusView();
@@ -86,6 +99,10 @@ signals:
     void navigationChanged();
     // Right-click or the menu key. localPos is in anchor. onItem is false for empty space and "..".
     void contextMenuRequested(bifrons::FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem);
+    // Local files dropped on this panel, to copy or move into targetDir. Sent after the drop has finished.
+    void filesDropped(bifrons::FilePanel *panel, const QStringList &sources, const QString &targetDir, bool move);
+    // The user renamed the entry at path in place. newName is a bare name, already checked.
+    void renameRequested(bifrons::FilePanel *panel, const QString &path, const QString &newName);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -100,6 +117,17 @@ private:
     void markAndMoveDown();
     void selectName(const QString &name);
     void updateStatus();
+    // Clears and hides the filter box. focusList returns the keyboard to the list.
+    void closeQuickFilter(bool focusList);
+    // Enter in the rename box. Keeps the box open when the name is not usable.
+    void commitInlineRename();
+    void cancelInlineRename();
+    // Drags the marked entries if row is marked, otherwise just row.
+    void startDrag(int row);
+    // Folder a drop at pos would go into, or empty where dropping makes no sense. row gets the tinted row.
+    QString dropTarget(const QPoint &pos, const QStringList &sources, int *row) const;
+    // Handles drag enter, move, leave and drop on the list. Returns true when the event was used.
+    bool handleDropEvent(QEvent *event);
     void showError(const QString &message);
     // Centred text over the file list. Empty hides it.
     void showMessage(const QString &text);
@@ -120,6 +148,16 @@ private:
     PathBar *m_pathBar = nullptr;
     QLabel *m_status = nullptr;
     QLabel *m_message = nullptr;
+    QLineEdit *m_filterEdit = nullptr;
+    bool m_folderReleased = false;
+    // Open only while renaming in place.
+    QLineEdit *m_renameEdit = nullptr;
+    QString m_renameFrom;
+    // Selected by the next reload, so the cursor follows a renamed entry.
+    QString m_renamedTo;
+    // Where a plain left press landed, for starting a drag. -1 when no drag can start.
+    int m_pressRow = -1;
+    QPoint m_pressPos;
 
     QFutureWatcher<ListResult> m_loader;
     QFileSystemWatcher m_fsWatcher;

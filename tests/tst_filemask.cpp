@@ -3,6 +3,7 @@
 #include "core/filemask.h"
 
 using bifrons::FileMask;
+using bifrons::QuickFilter;
 
 class TestFileMask : public QObject
 {
@@ -43,6 +44,45 @@ private slots:
     {
         QVERIFY(!FileMask(QStringLiteral(" ; ")).isValid());
         QVERIFY(!FileMask(QStringLiteral(" ; ")).matches(QStringLiteral("x")));
+    }
+
+    void quickFilterEmptyMatchesAll()
+    {
+        const QuickFilter filter(QStringLiteral("  "));
+        QVERIFY(filter.isEmpty());
+        QVERIFY(filter.matches(QStringLiteral("anything.txt")));
+    }
+
+    void quickFilterPlainTextMatchesAnywhere()
+    {
+        const QuickFilter filter(QStringLiteral("Main"));
+        QVERIFY(!filter.isEmpty());
+        QVERIFY(filter.matches(QStringLiteral("main.cpp")));
+        QVERIFY(filter.matches(QStringLiteral("domain.h")));
+        QVERIFY(!filter.matches(QStringLiteral("readme.md")));
+    }
+
+    void quickFilterDotIsLiteral()
+    {
+        const QuickFilter filter(QStringLiteral(".h"));
+        QVERIFY(filter.matches(QStringLiteral("a.h")));
+        QVERIFY(!filter.matches(QStringLiteral("ah")));
+    }
+
+    void quickFilterWildcardsAreAMask()
+    {
+        const QuickFilter filter(QStringLiteral("*.cpp;*.h"));
+        QVERIFY(filter.matches(QStringLiteral("main.CPP")));
+        QVERIFY(filter.matches(QStringLiteral("a.h")));
+        // A mask matches the whole name, so text after the extension does not match.
+        QVERIFY(!filter.matches(QStringLiteral("main.cpp.bak")));
+    }
+
+    void quickFilterQuestionMarkIsOneCharacter()
+    {
+        const QuickFilter filter(QStringLiteral("?"));
+        QVERIFY(filter.matches(QStringLiteral("a")));
+        QVERIFY(!filter.matches(QStringLiteral("ab")));
     }
 };
 

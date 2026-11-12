@@ -14,6 +14,8 @@ add_library(bifrons_core STATIC
     core/fileitem.cpp
     core/filemask.h
     core/filemask.cpp
+    core/hotkeys.h
+    core/hotkeys.cpp
     core/fileoperation.h
     core/fileoperation.cpp
     core/filesort.h
@@ -56,6 +58,8 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/filelistmodel.cpp
     ui/finddialog.h
     ui/finddialog.cpp
+    ui/hotkeysdialog.h
+    ui/hotkeysdialog.cpp
     ui/filepanel.h
     ui/filepanel.cpp
     ui/multirenamedialog.h
@@ -78,6 +82,8 @@ qt_add_executable(bifrons WIN32 MACOSX_BUNDLE
     ui/pathbar.cpp
     ui/terminal.h
     ui/terminal.cpp
+    ui/transferdialog.h
+    ui/transferdialog.cpp
     ui/usertooldialog.h
     ui/usertooldialog.cpp
     ui/viewerwidget.h

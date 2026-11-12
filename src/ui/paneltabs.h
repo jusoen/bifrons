@@ -61,6 +61,8 @@ signals:
     void switchPanelRequested();
     void currentItemChanged(bifrons::FilePanel *panel);
     void contextMenuRequested(bifrons::FilePanel *panel, QWidget *anchor, const QPoint &localPos, bool onItem);
+    void filesDropped(bifrons::FilePanel *panel, const QStringList &sources, const QString &targetDir, bool move);
+    void renameRequested(bifrons::FilePanel *panel, const QString &path, const QString &newName);
     void currentPanelChanged(bifrons::FilePanel *panel);
 
 protected:

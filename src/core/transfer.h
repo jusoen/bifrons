@@ -25,4 +25,8 @@ struct TransferPlan
 TransferPlan planTransfer(const QStringList &sources, const QString &destination,
                           const QString &currentDir);
 
+// Why sources cannot be copied or moved into the folder targetDir, or empty when they can.
+// Path text only, so it never touches the disk. Comparison ignores case, as on Windows.
+QString transferTargetProblem(const QStringList &sources, const QString &targetDir);
+
 } // namespace bifrons

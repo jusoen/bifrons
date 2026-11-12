@@ -1,6 +1,9 @@
 #include "ui/mainwindow.h"
 
+#include <QCheckBox>
 #include <QClipboard>
+#include <QMimeData>
+#include <QtEndian>
 #include <QCloseEvent>
 #include <QGuiApplication>
 #include <QDir>
@@ -32,6 +35,8 @@
 #include "ui/demooperation.h"
 #endif
 #include "ui/filepanel.h"
+#include "ui/hotkeysdialog.h"
+#include "ui/transferdialog.h"
 #include "ui/favouritesdialog.h"
 #include "ui/finddialog.h"
 #include "ui/multirenamedialog.h"
@@ -121,6 +126,20 @@ Qt::ColorScheme themeFromKey(const QString &key)
     return Qt::ColorScheme::Unknown;
 }
 
+// True when the clipboard holds a cut from Explorer: its Preferred DropEffect is move without copy.
+bool clipboardIsCut(const QMimeData *mime)
+{
+    const QByteArray data =
+        mime->data(QStringLiteral("application/x-qt-windows-mime;value=\"Preferred DropEffect\""));
+    if (data.size() < static_cast<qsizetype>(sizeof(quint32))) {
+        return false;
+    }
+    const quint32 effect = qFromLittleEndian<quint32>(data.constData());
+    constexpr quint32 DropEffectCopy = 1;
+    constexpr quint32 DropEffectMove = 2;
+    return (effect & DropEffectMove) != 0 && (effect & DropEffectCopy) == 0;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -165,6 +184,8 @@ MainWindow::MainWindow(QWidget *parent)
     for (PanelTabs *side : {m_left, m_right}) {
         connect(side, &PanelTabs::panelActivated, this, &MainWindow::setActivePanel);
         connect(side, &PanelTabs::contextMenuRequested, this, &MainWindow::showContextMenu);
+        connect(side, &PanelTabs::filesDropped, this, &MainWindow::dropFiles);
+        connect(side, &PanelTabs::renameRequested, this, &MainWindow::renameInPlace);
         connect(side, &PanelTabs::switchPanelRequested, this, [this] {
             if (m_quickSide != nullptr) {
                 m_quickView->setFocus();
@@ -180,6 +201,18 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     createCommands();
+    m_commands->captureDefaults();
+    m_commands->refreshCaptions();
+    {
+        QSettings s = settingsStore();
+        m_commands->applyHotkeys(loadHotkeys(s));
+    }
+    const QHash<QString, QStringList> clashes = findClashes(m_commands->currentHotkeys());
+    for (auto it = clashes.constBegin(); it != clashes.constEnd(); ++it) {
+        // Qt fires neither command for a shared key, so name them in the debug output.
+        qWarning("Hot key %s is bound to %s", qPrintable(it.key()),
+                 qPrintable(it.value().join(QStringLiteral(", "))));
+    }
     createMenus();
 
     setWindowTitle(QStringLiteral("%1 %2").arg(appDisplayName(), appVersion()));
@@ -191,12 +224,16 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::createCommands()
 {
     m_commands = new CommandRegistry(this);
-    m_commands->add(QStringLiteral("cm_Copy"), tr("&Copy…"), Qt::Key_F5, [this] { cmCopy(); });
-    m_commands->add(QStringLiteral("cm_Rename"), tr("&Move…"), Qt::Key_F6, [this] { cmRename(); });
-    m_commands->add(QStringLiteral("cm_RenameOnly"), tr("&Rename…"), Qt::SHIFT | Qt::Key_F6,
+    m_commands->add(QStringLiteral("cm_Copy"), tr("&Copy"), Qt::Key_F5, [this] { cmCopy(); });
+    m_commands->add(QStringLiteral("cm_Rename"), tr("&Move"), Qt::Key_F6, [this] { cmRename(); });
+    m_commands->add(QStringLiteral("cm_RenameOnly"), tr("&Rename"), Qt::SHIFT | Qt::Key_F6,
                     [this] { cmRenameOnly(); });
-    m_commands->add(QStringLiteral("cm_MakeDir"), tr("&New Folder…"), Qt::Key_F7, [this] { cmMakeDir(); });
-    m_commands->add(QStringLiteral("cm_Delete"), tr("&Delete…"), Qt::Key_F8, [this] { cmDelete(); });
+    m_commands->add(QStringLiteral("cm_MakeDir"), tr("&New Folder"), Qt::Key_F7, [this] { cmMakeDir(); });
+    // Del as well as DC's F8. A focused text field still gets Del, because it claims the key first.
+    m_commands->add(QStringLiteral("cm_PasteFromClipboard"), tr("&Paste"), QKeySequence(Qt::CTRL | Qt::Key_V),
+                    [this] { cmPaste(); });
+    m_commands->add(QStringLiteral("cm_Delete"), tr("&Delete"), Qt::Key_F8, [this] { cmDelete(); })
+        ->setShortcuts({QKeySequence(Qt::Key_F8), QKeySequence(Qt::Key_Delete)});
     m_commands->add(QStringLiteral("cm_Refresh"), tr("&Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
 #if defined(BIFRONS_DEMO_OPERATION)
     m_commands->add(QStringLiteral("cm_TestBackgroundOperation"), tr("Test &Background Operation"), QKeySequence(),
@@ -228,9 +265,9 @@ void MainWindow::createCommands()
         themes->addAction(action);
     }
     // + and - stay panel keys (a window shortcut would steal them from text fields), so no shortcut here.
-    m_commands->add(QStringLiteral("cm_MarkPlus"), tr("&Select a Group…\t+"), QKeySequence(),
+    m_commands->add(QStringLiteral("cm_MarkPlus"), tr("&Select a Group\t+"), QKeySequence(),
                     [this] { m_active->markByMaskPrompt(true); });
-    m_commands->add(QStringLiteral("cm_MarkMinus"), tr("&Unselect a Group…\t-"), QKeySequence(),
+    m_commands->add(QStringLiteral("cm_MarkMinus"), tr("&Unselect a Group\t-"), QKeySequence(),
                     [this] { m_active->markByMaskPrompt(false); });
     m_commands->add(QStringLiteral("cm_MarkMarkAll"), tr("Select &All\tCtrl+A"), QKeySequence(),
                     [this] { m_active->markAll(true); });
@@ -240,19 +277,30 @@ void MainWindow::createCommands()
     m_commands->add(QStringLiteral("cm_QuickView"), tr("&Quick View"), Qt::CTRL | Qt::Key_Q,
                     [this] { cmQuickView(); });
     m_commands->action(QStringLiteral("cm_QuickView"))->setCheckable(true);
-    m_commands->add(QStringLiteral("cm_DirHotList"), tr("&Favourites…"), Qt::CTRL | Qt::Key_D, [this] {
+    m_commands->add(QStringLiteral("cm_ConfigHotKeys"), tr("Hot &Keys"), QKeySequence(), [this] { configHotKeys(); });
+    m_commands->add(QStringLiteral("cm_ConfirmDelete"), tr("Confirm D&elete"), QKeySequence(), [this] {
+        setConfirmDelete(!m_confirmDelete);
+        settingsStore().setValue(QStringLiteral("operations/confirmDelete"), m_confirmDelete);
+    })->setCheckable(true);
+    m_commands->add(QStringLiteral("cm_ConfirmDragDrop"), tr("&Confirm Drag and Drop"), QKeySequence(), [this] {
+        setConfirmDrop(!m_confirmDrop);
+        settingsStore().setValue(QStringLiteral("operations/confirmDrop"), m_confirmDrop);
+    })->setCheckable(true);
+    m_commands->add(QStringLiteral("cm_QuickFilter"), tr("Q&uick Filter"), Qt::CTRL | Qt::Key_F,
+                    [this] { m_active->showQuickFilter(); });
+    m_commands->add(QStringLiteral("cm_DirHotList"), tr("&Favourites"), Qt::CTRL | Qt::Key_D, [this] {
         QMenu menu(this);
         fillFavouritesMenu(&menu);
         menu.exec(m_active->mapToGlobal(QPoint(0, 0)));
     });
     m_commands->add(QStringLiteral("cm_About"), tr("&About %1").arg(appDisplayName()), QKeySequence(), [this] {
         QMessageBox::about(this, tr("About %1").arg(appDisplayName()),
-                           tr("%1 %2\n\nA dual-pane file manager inspired by Double Commander.\nMIT licence.")
+                           tr("%1 %2\n\nA dual-pane file manager inspired by Double Commander.\n\nCopyright © 2026 Julian Mitchell\nMIT License.")
                                .arg(appDisplayName(), appVersion()));
     });
-    m_commands->add(QStringLiteral("cm_MultiRename"), tr("Multi-Rena&me…"), Qt::CTRL | Qt::Key_M,
+    m_commands->add(QStringLiteral("cm_MultiRename"), tr("Multi-Rena&me"), Qt::CTRL | Qt::Key_M,
                     [this] { cmMultiRename(); });
-    m_commands->add(QStringLiteral("cm_Search"), tr("&Find Files…"), Qt::ALT | Qt::Key_F7, [this] { cmSearch(); });
+    m_commands->add(QStringLiteral("cm_Search"), tr("&Find Files"), Qt::ALT | Qt::Key_F7, [this] { cmSearch(); });
     m_commands->add(QStringLiteral("cm_NewTab"), tr("&New Tab"), Qt::CTRL | Qt::Key_T,
                     [this] { activeSide()->newTab(); });
     m_commands->add(QStringLiteral("cm_CloseTab"), tr("&Close Tab"), Qt::CTRL | Qt::Key_W,
@@ -278,7 +326,8 @@ void MainWindow::createMenus()
         }
         return menu;
     };
-    addMenu(tr("&File"), {"cm_View", nullptr, "cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete", nullptr,
+    addMenu(tr("&File"), {"cm_View", nullptr, "cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete",
+                          "cm_PasteFromClipboard", nullptr,
                           "cm_MultiRename", nullptr, "cm_Exit"});
     addMenu(tr("&Mark"), {"cm_MarkPlus", "cm_MarkMinus", nullptr, "cm_MarkMarkAll", "cm_MarkUnmarkAll"});
     QMenu *commands = addMenu(tr("&Commands"), {"cm_Search", "cm_RunTerm", nullptr, "cm_ViewHistoryPrev",
@@ -292,12 +341,14 @@ void MainWindow::createMenus()
     addMenu(tr("&Tabs"), {"cm_NewTab", "cm_CloseTab", nullptr, "cm_NextTab", "cm_PrevTab"});
     QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
     connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
-    QMenu *view = addMenu(tr("&View"), {"cm_QuickView", nullptr, "cm_ShowSysFiles", "cm_ShowFolderSizes"});
+    QMenu *view = addMenu(tr("&View"), {"cm_QuickView", "cm_QuickFilter", nullptr, "cm_ShowSysFiles", "cm_ShowFolderSizes",
+                                          nullptr, "cm_ConfirmDragDrop", "cm_ConfirmDelete"});
     view->addSeparator();
     QMenu *theme = view->addMenu(tr("&Theme"));
     for (const char *name : {"cm_ThemeSystem", "cm_ThemeLight", "cm_ThemeDark"}) {
         theme->addAction(m_commands->action(QLatin1String(name)));
     }
+    addMenu(tr("Confi&guration"), {"cm_ConfigHotKeys"});
     addMenu(tr("&Help"), {"cm_About"});
 }
 
@@ -330,7 +381,7 @@ void MainWindow::fillFavouritesMenu(QMenu *menu)
             saveFavouritesNow();
         }
     });
-    connect(menu->addAction(tr("&Organise favourites…")), &QAction::triggered, this, [this] {
+    connect(menu->addAction(tr("&Organise favourites")), &QAction::triggered, this, [this] {
         FavouritesDialog dialog(m_favourites, this);
         if (dialog.exec() == QDialog::Accepted) {
             m_favourites = dialog.favourites();
@@ -452,6 +503,46 @@ FilePanel *MainWindow::otherPanel() const
     return (activeSide() == m_left ? m_right : m_left)->currentPanel();
 }
 
+void MainWindow::cmPaste()
+{
+    const QMimeData *mime = QGuiApplication::clipboard()->mimeData();
+    if (mime == nullptr || !mime->hasUrls()) {
+        return;
+    }
+    QStringList sources;
+    for (const QUrl &url : mime->urls()) {
+        if (!url.isLocalFile()) {
+            QMessageBox::information(this, tr("Paste"), tr("Only files and folders can be pasted."));
+            return;
+        }
+        sources.append(QDir::fromNativeSeparators(url.toLocalFile()));
+    }
+    const QString problem = m_active->pasteProblem(sources);
+    if (!problem.isEmpty()) {
+        QMessageBox::information(this, tr("Paste"), problem);
+        return;
+    }
+    const bool move = clipboardIsCut(mime);
+    // The trailing slash makes planTransfer put every item inside the folder.
+    const QString folder = m_active->path();
+    const TransferPlan plan = planTransfer(sources, folder + QLatin1Char('/'), folder);
+    if (!plan.ok) {
+        QMessageBox::warning(this, tr("Paste"), plan.error);
+        return;
+    }
+    const QString title = move ? tr("Move") : tr("Copy");
+    if (move) {
+        releaseFolders(sources);
+    }
+    runOperation(new LocalFileOperation(move ? LocalFileOperation::Kind::Move : LocalFileOperation::Kind::Copy,
+                                        plan.items),
+                 title);
+    if (move) {
+        // As in Explorer, a cut pastes once. The originals are on their way to this folder.
+        QGuiApplication::clipboard()->clear();
+    }
+}
+
 void MainWindow::cmCopy()
 {
     const QStringList sources = m_active->selectedPaths();
@@ -468,9 +559,71 @@ void MainWindow::cmRename()
              m_source->displayPath(otherPanel()->persistentPath()));
 }
 
+void MainWindow::dropFiles(FilePanel *panel, const QStringList &sources, const QString &targetDir, bool move)
+{
+    if (panel == nullptr || sources.isEmpty()) {
+        return;
+    }
+    // The drop side runs the operation, so it shows the progress.
+    setActivePanel(panel);
+    panel->focusView();
+    activateWindow();
+    const QString baseDir = QFileInfo(sources.first()).absolutePath();
+    if (move) {
+        transfer(LocalFileOperation::Kind::Move, sources, baseDir, tr("Move"),
+                 tr("Move %1 item(s) to:").arg(sources.size()), m_source->displayPath(targetDir), true);
+    } else {
+        transfer(LocalFileOperation::Kind::Copy, sources, baseDir, tr("Copy"),
+                 tr("Copy %1 item(s) to:").arg(sources.size()), m_source->displayPath(targetDir), true);
+    }
+}
+
+void MainWindow::configHotKeys()
+{
+    QList<HotkeysDialog::Command> commands;
+    for (const QString &name : m_commands->names()) {
+        // "&Select a Group\t+" reads as "Select a Group" in the list.
+        QString caption = m_commands->action(name)->text().section(QLatin1Char('\t'), 0, 0);
+        caption.remove(QLatin1Char('&'));
+        commands.append({name, caption});
+    }
+    HotkeysDialog dialog(commands, m_commands->currentHotkeys(), m_commands->defaultHotkeys(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const HotkeyMap map = dialog.hotkeys();
+    m_commands->applyHotkeys(map);
+    QSettings s = settingsStore();
+    saveHotkeys(s, map, m_commands->defaultHotkeys());
+}
+
+void MainWindow::setConfirmDelete(bool confirm)
+{
+    m_confirmDelete = confirm;
+    m_commands->action(QStringLiteral("cm_ConfirmDelete"))->setChecked(confirm);
+}
+
+void MainWindow::setConfirmDrop(bool confirm)
+{
+    m_confirmDrop = confirm;
+    m_commands->action(QStringLiteral("cm_ConfirmDragDrop"))->setChecked(confirm);
+}
+
+void MainWindow::renameInPlace(FilePanel *panel, const QString &path, const QString &newName)
+{
+    setActivePanel(panel);
+    const QString target = QDir(QFileInfo(path).absolutePath()).filePath(newName);
+    // Source and target given directly, not through planTransfer, which would move into a folder of that name.
+    releaseFolders({path});
+    runOperation(new LocalFileOperation(LocalFileOperation::Kind::Move, {{path, target}}), tr("Rename"));
+}
+
 void MainWindow::cmRenameOnly()
 {
-    // Renames only the item under the cursor, whatever is marked.
+    // Renames only the item under the cursor, whatever is marked. In place where the panel can.
+    if (m_active->startInlineRename()) {
+        return;
+    }
     const QString path = m_active->currentPath();
     if (path.isEmpty()) {
         return;
@@ -481,16 +634,24 @@ void MainWindow::cmRenameOnly()
 }
 
 void MainWindow::transfer(LocalFileOperation::Kind kind, const QStringList &sources, const QString &baseDir,
-                          const QString &title, const QString &label, const QString &defaultDestination)
+                          const QString &title, const QString &label, const QString &defaultDestination,
+                          bool fromDrop)
 {
     if (sources.isEmpty()) {
         return;
     }
-    bool ok = false;
-    const QString destination =
-        QInputDialog::getText(this, title, label, QLineEdit::Normal, defaultDestination, &ok);
-    if (!ok) {
-        return;
+    QString destination = defaultDestination;
+    if (!fromDrop || m_confirmDrop) {
+        TransferDialog dialog(title, label, defaultDestination, fromDrop, this);
+        if (dialog.exec() != QDialog::Accepted) {
+            return;
+        }
+        destination = dialog.destination();
+        if (dialog.doNotAskAgain()) {
+            setConfirmDrop(false);
+            // Saved now, so the choice holds even if Bifrons does not close cleanly.
+            settingsStore().setValue(QStringLiteral("operations/confirmDrop"), false);
+        }
     }
     const TransferPlan plan = planTransfer(sources, destination, baseDir);
     if (!plan.ok) {
@@ -501,6 +662,9 @@ void MainWindow::transfer(LocalFileOperation::Kind kind, const QStringList &sour
     if (!plan.createDir.isEmpty() && !m_source->makePath(plan.createDir, &error)) {
         QMessageBox::warning(this, title, error);
         return;
+    }
+    if (kind == LocalFileOperation::Kind::Move) {
+        releaseFolders(sources);
     }
     runOperation(new LocalFileOperation(kind, plan.items), title);
 }
@@ -537,13 +701,27 @@ void MainWindow::cmDelete()
     const QString question = paths.size() == 1
         ? tr("Move \"%1\" to the recycle bin?").arg(QFileInfo(paths.first()).fileName())
         : tr("Move %1 items to the recycle bin?").arg(paths.size());
-    if (QMessageBox::question(this, tr("Delete"), question) != QMessageBox::Yes) {
-        return;
+    // A share may have no recycle bin, so Windows could delete outright. Those always ask.
+    const bool network = std::any_of(paths.cbegin(), paths.cend(),
+                                     [](const QString &p) { return LocalFileSource::isNetworkPath(p); });
+    if (m_confirmDelete || network) {
+        QMessageBox box(QMessageBox::Question, tr("Delete"), question, QMessageBox::Yes | QMessageBox::No, this);
+        if (!network) {
+            box.setCheckBox(new QCheckBox(tr("Do not ask again"), &box));
+        }
+        if (box.exec() != QMessageBox::Yes) {
+            return;
+        }
+        if (box.checkBox() != nullptr && box.checkBox()->isChecked()) {
+            setConfirmDelete(false);
+            settingsStore().setValue(QStringLiteral("operations/confirmDelete"), false);
+        }
     }
     QList<TransferItem> items;
     for (const QString &path : paths) {
         items.append({path, QString()});
     }
+    releaseFolders(paths);
     runOperation(new LocalFileOperation(LocalFileOperation::Kind::Delete, items), tr("Delete"));
 }
 
@@ -650,6 +828,15 @@ void MainWindow::cmRefresh()
     m_right->currentPanel()->reload();
 }
 
+void MainWindow::releaseFolders(const QStringList &paths)
+{
+    for (PanelTabs *side : {m_left, m_right}) {
+        for (FilePanel *panel : side->panels()) {
+            panel->releaseFolderUnder(paths);
+        }
+    }
+}
+
 void MainWindow::runOperation(FileOperation *op, const QString &title)
 {
     OperationQueue *queue = m_queues.value(activeSide(), nullptr);
@@ -719,6 +906,11 @@ void MainWindow::showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint
             }
         };
     };
+    // Menu text with the command's first key after a tab, so it follows any rebinding.
+    const auto keyed = [this](const QString &text, const char *name) {
+        const QString keys = m_commands->keyText(QLatin1String(name));
+        return keys.isEmpty() ? text : text + QLatin1Char('\t') + keys;
+    };
     const auto copyPaths = [](const QStringList &paths) {
         return [paths] {
             QStringList native;
@@ -732,9 +924,10 @@ void MainWindow::showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint
     if (!onItem) {
         const QString folder = panel->persistentPath();
         showEntryMenu(anchor, localPos, {
-            {tr("New &Folder\tF7"), command("cm_MakeDir")},
-            {tr("Open &Terminal Here"), command("cm_RunTerm")},
-            {tr("&Refresh\tCtrl+R"), command("cm_Refresh")},
+            {keyed(tr("New &Folder"), "cm_MakeDir"), command("cm_MakeDir")},
+            {keyed(tr("Open &Terminal Here"), "cm_RunTerm"), command("cm_RunTerm")},
+            {keyed(tr("&Paste"), "cm_PasteFromClipboard"), command("cm_PasteFromClipboard")},
+            {keyed(tr("&Refresh"), "cm_Refresh"), command("cm_Refresh")},
             {QString(), {}},
             {tr("Copy Folder &Path"), copyPaths({folder})},
         });
@@ -743,11 +936,11 @@ void MainWindow::showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint
 
     const QStringList paths = panel->selectedPaths();
     const QList<MenuEntry> entries = {
-        {tr("&View\tF3"), command("cm_View")},
-        {tr("&Copy to Other Pane…\tF5"), command("cm_Copy")},
-        {tr("&Move to Other Pane…\tF6"), command("cm_Rename")},
-        {tr("Re&name…\tShift+F6"), command("cm_RenameOnly")},
-        {tr("&Delete\tF8"), command("cm_Delete")},
+        {keyed(tr("&View"), "cm_View"), command("cm_View")},
+        {keyed(tr("&Copy to Other Pane"), "cm_Copy"), command("cm_Copy")},
+        {keyed(tr("&Move to Other Pane"), "cm_Rename"), command("cm_Rename")},
+        {keyed(tr("Re&name"), "cm_RenameOnly"), command("cm_RenameOnly")},
+        {keyed(tr("&Delete"), "cm_Delete"), command("cm_Delete")},
         {QString(), {}},
         {tr("Copy &Path"), copyPaths(paths)},
     };
@@ -771,6 +964,11 @@ bool MainWindow::operationsBusy() const
 void MainWindow::onOperationFinished(const FileOperation::Result &result)
 {
     cmRefresh();
+    for (PanelTabs *side : {m_left, m_right}) {
+        for (FilePanel *panel : side->panels()) {
+            panel->reloadIfReleased();
+        }
+    }
 
     if (m_closePending) {
         // Close once the last side has stopped.
@@ -824,6 +1022,8 @@ void MainWindow::loadSettings()
 
     setShowHidden(s.value(QStringLiteral("view/showHidden"), false).toBool());
     setShowFolderSizes(s.value(QStringLiteral("view/folderSizes"), false).toBool());
+    setConfirmDrop(s.value(QStringLiteral("operations/confirmDrop"), true).toBool());
+    setConfirmDelete(s.value(QStringLiteral("operations/confirmDelete"), true).toBool());
     m_userTools = loadUserTools(s);
     for (PanelToolbar *toolbar : std::as_const(m_toolbars)) {
         toolbar->setUserTools(m_userTools);
@@ -862,6 +1062,8 @@ void MainWindow::saveSettings() const
     s.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
     s.setValue(QStringLiteral("view/showHidden"), m_showHidden);
     s.setValue(QStringLiteral("view/folderSizes"), m_showFolderSizes);
+    s.setValue(QStringLiteral("operations/confirmDrop"), m_confirmDrop);
+    s.setValue(QStringLiteral("operations/confirmDelete"), m_confirmDelete);
     saveUserTools(s, m_userTools);
     s.setValue(QStringLiteral("activePanel"),
                activeSide() == m_right ? QStringLiteral("right") : QStringLiteral("left"));
