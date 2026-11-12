@@ -98,8 +98,8 @@ if(BIFRONS_DEMO_OPERATION)
     target_compile_definitions(bifrons PRIVATE BIFRONS_DEMO_OPERATION)
 endif()
 
-# App icon (Framed Gate). bifrons.svg is the source, bifrons.png and bifrons.ico are rendered from it,
-# except the 16 px .ico image, which is a hand pixel map.
+# App icon (Framed Gate). bifrons.svg is the source. bifrons.png and bifrons.ico are rendered from it,
+# each .ico size on its own pixel grid.
 set(_icon_dir "${PROJECT_SOURCE_DIR}/resources/icons")
 set_source_files_properties("${_icon_dir}/bifrons.png" PROPERTIES QT_RESOURCE_ALIAS "bifrons.png")
 set_source_files_properties("${_icon_dir}/bifrons.ico" PROPERTIES QT_RESOURCE_ALIAS "bifrons.ico")

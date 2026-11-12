@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
         QStringLiteral("%1 %2").arg(bifrons::appDisplayName(), bifrons::appVersion()));
     QApplication::setApplicationVersion(bifrons::appVersion());
     QApplication::setOrganizationName(bifrons::appOrganisation());
-    // ICO gives the hand-tuned small sizes. PNG adds 512 px and covers a missing ICO plugin.
+    // ICO gives the pre-rendered small sizes. PNG adds 512 px and covers a missing ICO plugin.
     QIcon appIcon(QStringLiteral(":/icons/bifrons.ico"));
     appIcon.addFile(QStringLiteral(":/icons/bifrons.png"));
     QApplication::setWindowIcon(appIcon);
