@@ -163,6 +163,8 @@ FilePanel::FilePanel(std::shared_ptr<const FileSource> source, QWidget *parent)
     m_pathBar = new PathBar(this);
     m_pathBar->lineEdit()->installEventFilter(this);
     m_status = new QLabel(this);
+    // Long status text is clipped rather than widening the pane.
+    m_status->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setPlaceholderText(tr("Filter (text, or a mask such as *.cpp)"));
     m_filterEdit->setClearButtonEnabled(true);
@@ -467,6 +469,11 @@ void FilePanel::setActive(bool active)
 void FilePanel::refreshColours()
 {
     setActive(m_active);
+}
+
+QWidget *FilePanel::listView() const
+{
+    return m_view;
 }
 
 void FilePanel::focusView()

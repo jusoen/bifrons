@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFrame>
 #include <QInputDialog>
+#include <QLabel>
 #include <QAction>
 #include <QApplication>
 #include <QMenu>
@@ -22,8 +23,13 @@
 #include <QActionGroup>
 #include <QStyle>
 #include <QStyleHints>
+#include <QPainter>
+#include <QToolButton>
+#include <QUrl>
 #include <QVBoxLayout>
 
+#include <functional>
+#include <limits>
 #include <tuple>
 
 #include "core/appinfo.h"
@@ -126,19 +132,113 @@ Qt::ColorScheme themeFromKey(const QString &key)
     return Qt::ColorScheme::Unknown;
 }
 
+// Windows clipboard format that tells Explorer whether pasted files are copied or moved.
+const QString PreferredDropEffectMime = QStringLiteral("application/x-qt-windows-mime;value=\"Preferred DropEffect\"");
+constexpr quint32 DropEffectCopy = 1;
+constexpr quint32 DropEffectMove = 2;
+constexpr int PaneBarButtonSize = 26;
+constexpr int PaneBarIconSize = 20;
+constexpr int ToastMs = 500;
+
+// Direction arrow, with the drag cursor's plus box beneath it for a copy. Drawn at native size so 1 px lines stay sharp.
+QIcon transferIcon(bool copy, bool toRight, const QColor &colour, qreal dpr)
+{
+    constexpr qreal Size = PaneBarIconSize;
+    QPixmap pixmap(qRound(Size * dpr), qRound(Size * dpr));
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    if (!toRight) {
+        painter.translate(Size, 0);
+        painter.scale(-1, 1);
+    }
+    QPen pen(colour, 1.0);
+    pen.setCapStyle(Qt::FlatCap);
+    pen.setJoinStyle(Qt::MiterJoin);
+    painter.setPen(pen);
+    // A copy raises the arrow to make room for the box beneath it.
+    const qreal y = copy ? 5.5 : 10.5;
+    painter.drawLine(QPointF(2, y), QPointF(17.5, y));
+    painter.drawPolyline(QPolygonF({QPointF(13, y - 4.5), QPointF(17.5, y), QPointF(13, y + 4.5)}));
+    if (copy) {
+        painter.drawRect(QRectF(6.5, 11.5, 8, 8));
+        painter.drawLine(QPointF(10.5, 13), QPointF(10.5, 18));
+        painter.drawLine(QPointF(8, 15.5), QPointF(13, 15.5));
+    }
+    painter.end();
+    return QIcon(pixmap);
+}
+
 // True when the clipboard holds a cut from Explorer: its Preferred DropEffect is move without copy.
 bool clipboardIsCut(const QMimeData *mime)
 {
-    const QByteArray data =
-        mime->data(QStringLiteral("application/x-qt-windows-mime;value=\"Preferred DropEffect\""));
+    const QByteArray data = mime->data(PreferredDropEffectMime);
     if (data.size() < static_cast<qsizetype>(sizeof(quint32))) {
         return false;
     }
     const quint32 effect = qFromLittleEndian<quint32>(data.constData());
-    constexpr quint32 DropEffectCopy = 1;
-    constexpr quint32 DropEffectMove = 2;
     return (effect & DropEffectMove) != 0 && (effect & DropEffectCopy) == 0;
 }
+
+// The gap between the button pairs. Dragging it slides the pane bar along the divider.
+class PaneBarGrip : public QWidget
+{
+public:
+    using QWidget::QWidget;
+
+    std::function<void(int startCentreY, int dy)> onDrag;
+    std::function<int()> barCentreY;
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(palette().color(QPalette::Mid));
+        const QPointF c = QRectF(rect()).center();
+        for (int i = -1; i <= 1; ++i) {
+            painter.drawEllipse(QPointF(c.x() + i * 4.0, c.y()), 1.2, 1.2);
+        }
+    }
+
+    void enterEvent(QEnterEvent *) override
+    {
+        setCursor(Qt::SizeVerCursor);
+    }
+
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() != Qt::LeftButton || !barCentreY) {
+            QWidget::mousePressEvent(event);
+            return;
+        }
+        m_pressY = event->globalPosition().toPoint().y();
+        m_startCentreY = barCentreY();
+        m_dragging = true;
+        event->accept();
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (m_dragging && onDrag) {
+            onDrag(m_startCentreY, event->globalPosition().toPoint().y() - m_pressY);
+        }
+        event->accept();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        m_dragging = false;
+        event->accept();
+    }
+
+private:
+    bool m_dragging = false;
+    int m_pressY = 0;
+    int m_startCentreY = 0;
+};
 
 } // namespace
 
@@ -186,6 +286,8 @@ MainWindow::MainWindow(QWidget *parent)
         connect(side, &PanelTabs::contextMenuRequested, this, &MainWindow::showContextMenu);
         connect(side, &PanelTabs::filesDropped, this, &MainWindow::dropFiles);
         connect(side, &PanelTabs::renameRequested, this, &MainWindow::renameInPlace);
+        // A new tab's list is watched from here on, and may sit a little differently.
+        connect(side, &PanelTabs::currentPanelChanged, this, &MainWindow::placePaneBar);
         connect(side, &PanelTabs::switchPanelRequested, this, [this] {
             if (m_quickSide != nullptr) {
                 m_quickView->setFocus();
@@ -214,6 +316,7 @@ MainWindow::MainWindow(QWidget *parent)
                  qPrintable(it.value().join(QStringLiteral(", "))));
     }
     createMenus();
+    createPaneBar();
 
     setWindowTitle(QStringLiteral("%1 %2").arg(appDisplayName(), appVersion()));
     statusBar()->hide();
@@ -230,8 +333,21 @@ void MainWindow::createCommands()
                     [this] { cmRenameOnly(); });
     m_commands->add(QStringLiteral("cm_MakeDir"), tr("&New Folder"), Qt::Key_F7, [this] { cmMakeDir(); });
     // Del as well as DC's F8. A focused text field still gets Del, because it claims the key first.
+    m_commands->add(QStringLiteral("cm_CutToClipboard"), tr("Cu&t"), QKeySequence(Qt::CTRL | Qt::Key_X),
+                    [this] { copyToClipboard(true); });
+    m_commands->add(QStringLiteral("cm_CopyToClipboard"), tr("C&opy"), QKeySequence(Qt::CTRL | Qt::Key_C),
+                    [this] { copyToClipboard(false); });
     m_commands->add(QStringLiteral("cm_PasteFromClipboard"), tr("&Paste"), QKeySequence(Qt::CTRL | Qt::Key_V),
                     [this] { cmPaste(); });
+    // Driven by the bar in the splitter. They act at once on the source side's selection, without a dialog.
+    m_commands->add(QStringLiteral("cm_CopyToRight"), tr("Copy to Right Pane"), QKeySequence(),
+                    [this] { transferAcross(m_left, false); });
+    m_commands->add(QStringLiteral("cm_CopyToLeft"), tr("Copy to Left Pane"), QKeySequence(),
+                    [this] { transferAcross(m_right, false); });
+    m_commands->add(QStringLiteral("cm_MoveToRight"), tr("Move to Right Pane"), QKeySequence(),
+                    [this] { transferAcross(m_left, true); });
+    m_commands->add(QStringLiteral("cm_MoveToLeft"), tr("Move to Left Pane"), QKeySequence(),
+                    [this] { transferAcross(m_right, true); });
     m_commands->add(QStringLiteral("cm_Delete"), tr("&Delete"), Qt::Key_F8, [this] { cmDelete(); })
         ->setShortcuts({QKeySequence(Qt::Key_F8), QKeySequence(Qt::Key_Delete)});
     m_commands->add(QStringLiteral("cm_Refresh"), tr("&Refresh"), Qt::CTRL | Qt::Key_R, [this] { cmRefresh(); });
@@ -246,6 +362,9 @@ void MainWindow::createCommands()
     m_commands->add(QStringLiteral("cm_ViewHistoryNext"), tr("&Forward"), Qt::ALT | Qt::Key_Right,
                     [this] { m_active->goForward(); });
     m_commands->add(QStringLiteral("cm_Exit"), tr("E&xit"), Qt::ALT | Qt::Key_X, [this] { close(); });
+    m_commands->add(QStringLiteral("cm_ShowPaneBar"), tr("Show Copy/Move &Buttons"), QKeySequence(),
+                    [this] { setShowPaneBar(m_paneBar != nullptr && m_paneBar->isHidden()); })
+        ->setCheckable(true);
     m_commands->add(QStringLiteral("cm_ShowFolderSizes"), tr("Show &Folder Sizes"), QKeySequence(),
                     [this] { setShowFolderSizes(!m_showFolderSizes); })
         ->setCheckable(true);
@@ -327,7 +446,7 @@ void MainWindow::createMenus()
         return menu;
     };
     addMenu(tr("&File"), {"cm_View", nullptr, "cm_Copy", "cm_Rename", "cm_RenameOnly", "cm_MakeDir", "cm_Delete",
-                          "cm_PasteFromClipboard", nullptr,
+                          nullptr, "cm_CutToClipboard", "cm_CopyToClipboard", "cm_PasteFromClipboard", nullptr,
                           "cm_MultiRename", nullptr, "cm_Exit"});
     addMenu(tr("&Mark"), {"cm_MarkPlus", "cm_MarkMinus", nullptr, "cm_MarkMarkAll", "cm_MarkUnmarkAll"});
     QMenu *commands = addMenu(tr("&Commands"), {"cm_Search", "cm_RunTerm", nullptr, "cm_ViewHistoryPrev",
@@ -342,7 +461,7 @@ void MainWindow::createMenus()
     QMenu *favourites = menuBar()->addMenu(tr("F&avourites"));
     connect(favourites, &QMenu::aboutToShow, this, [this, favourites] { fillFavouritesMenu(favourites); });
     QMenu *view = addMenu(tr("&View"), {"cm_QuickView", "cm_QuickFilter", nullptr, "cm_ShowSysFiles", "cm_ShowFolderSizes",
-                                          nullptr, "cm_ConfirmDragDrop", "cm_ConfirmDelete"});
+                                          "cm_ShowPaneBar", nullptr, "cm_ConfirmDragDrop", "cm_ConfirmDelete"});
     view->addSeparator();
     QMenu *theme = view->addMenu(tr("&Theme"));
     for (const char *name : {"cm_ThemeSystem", "cm_ThemeLight", "cm_ThemeDark"}) {
@@ -441,6 +560,7 @@ void MainWindow::refreshThemeColours()
     for (PanelToolbar *toolbar : std::as_const(m_toolbars)) {
         toolbar->refreshIcons();
     }
+    refreshPaneBarIcons();
 }
 
 PanelTabs *MainWindow::activeSide() const
@@ -517,29 +637,237 @@ void MainWindow::cmPaste()
         }
         sources.append(QDir::fromNativeSeparators(url.toLocalFile()));
     }
-    const QString problem = m_active->pasteProblem(sources);
-    if (!problem.isEmpty()) {
-        QMessageBox::information(this, tr("Paste"), problem);
-        return;
-    }
     const bool move = clipboardIsCut(mime);
+    if (transferInto(m_active, sources, move, tr("Paste")) && move) {
+        // As in Explorer, a cut pastes once. The originals are on their way to this folder.
+        QGuiApplication::clipboard()->clear();
+    }
+}
+
+bool MainWindow::transferInto(FilePanel *target, const QStringList &sources, bool move, const QString &title)
+{
+    if (target == nullptr || sources.isEmpty()) {
+        return false;
+    }
+    const QString problem = target->pasteProblem(sources);
+    if (!problem.isEmpty()) {
+        QMessageBox::information(this, title, problem);
+        return false;
+    }
     // The trailing slash makes planTransfer put every item inside the folder.
-    const QString folder = m_active->path();
+    const QString folder = target->path();
     const TransferPlan plan = planTransfer(sources, folder + QLatin1Char('/'), folder);
     if (!plan.ok) {
-        QMessageBox::warning(this, tr("Paste"), plan.error);
-        return;
+        QMessageBox::warning(this, title, plan.error);
+        return false;
     }
-    const QString title = move ? tr("Move") : tr("Copy");
     if (move) {
         releaseFolders(sources);
     }
     runOperation(new LocalFileOperation(move ? LocalFileOperation::Kind::Move : LocalFileOperation::Kind::Copy,
                                         plan.items),
-                 title);
-    if (move) {
-        // As in Explorer, a cut pastes once. The originals are on their way to this folder.
-        QGuiApplication::clipboard()->clear();
+                 move ? tr("Move") : tr("Copy"));
+    return true;
+}
+
+void MainWindow::copyToClipboard(bool cut)
+{
+    const QStringList paths = m_active->selectedPaths();
+    if (paths.isEmpty()) {
+        return;
+    }
+    QList<QUrl> urls;
+    urls.reserve(paths.size());
+    for (const QString &path : paths) {
+        urls.append(QUrl::fromLocalFile(path));
+    }
+    QByteArray effect(static_cast<qsizetype>(sizeof(quint32)), '\0');
+    qToLittleEndian<quint32>(cut ? DropEffectMove : DropEffectCopy, effect.data());
+    auto *mime = new QMimeData;
+    mime->setUrls(urls);
+    mime->setData(PreferredDropEffectMime, effect);
+    // The clipboard takes ownership of mime.
+    QGuiApplication::clipboard()->setMimeData(mime);
+}
+
+void MainWindow::showToast(const QString &text, FilePanel *panel, bool leftOfBar)
+{
+    QWidget *parent = m_splitter->parentWidget();
+    if (m_toast == nullptr) {
+        m_toast = new QLabel(parent);
+        m_toast->setStyleSheet(QStringLiteral(
+            "QLabel { background: palette(tool-tip-base); color: palette(tool-tip-text);"
+            " border: 1px solid palette(mid); border-radius: 4px; padding: 4px 8px; }"));
+        m_toastTimer.setSingleShot(true);
+        m_toastTimer.setInterval(ToastMs);
+        connect(&m_toastTimer, &QTimer::timeout, m_toast, &QWidget::hide);
+    }
+    m_toast->setText(text);
+    m_toast->adjustSize();
+    QPoint at;
+    if (m_paneBar != nullptr && m_paneBar->isVisible()) {
+        // Beside the bar, on the side the files would have come from.
+        const QRect bar = m_paneBar->geometry();
+        const int x = leftOfBar ? bar.left() - m_toast->width() - 4 : bar.right() + 5;
+        at = QPoint(x, bar.center().y() - m_toast->height() / 2);
+    } else if (panel != nullptr) {
+        const QRect area(panel->mapTo(parent, QPoint(0, 0)), panel->size());
+        at = area.center() - QPoint(m_toast->width() / 2, m_toast->height() / 2);
+    }
+    m_toast->move(at);
+    m_toast->show();
+    m_toast->raise();
+    m_toastTimer.start();
+}
+
+void MainWindow::transferAcross(PanelTabs *from, bool move)
+{
+    // A double-click on a bar button arrives as two clicks. Only the first one counts.
+    if (m_lastAcross.isValid() && m_lastAcross.elapsed() < QGuiApplication::styleHints()->mouseDoubleClickInterval()) {
+        return;
+    }
+    m_lastAcross.start();
+    FilePanel *source = from->currentPanel();
+    FilePanel *target = (from == m_left ? m_right : m_left)->currentPanel();
+    if (source == nullptr || target == nullptr) {
+        return;
+    }
+    const QStringList sources = source->selectedPaths();
+    if (sources.isEmpty()) {
+        showToast(tr("Nothing selected"), source, from == m_left);
+        return;
+    }
+    // The source side runs the operation, as with F5 and F6.
+    setActivePanel(source);
+    source->focusView();
+    (void)transferInto(target, sources, move, move ? tr("Move") : tr("Copy"));
+}
+
+void MainWindow::createPaneBar()
+{
+    QSplitterHandle *handle = m_splitter->handle(1);
+    if (handle == nullptr) {
+        return;
+    }
+    // Floats over the handle. A splitter child would become a third pane.
+    m_paneBar = new QFrame(m_splitter->parentWidget());
+    m_paneBar->setObjectName(QStringLiteral("paneBar"));
+    m_paneBar->setStyleSheet(QStringLiteral(
+        "QFrame#paneBar { background: palette(window); border: 1px solid palette(mid); border-radius: 4px; }"));
+    auto *layout = new QVBoxLayout(m_paneBar);
+    layout->setContentsMargins(2, 3, 2, 3);
+    layout->setSpacing(2);
+    const auto addButton = [this, layout](const char *command, bool copy, bool toRight) {
+        QAction *action = m_commands->action(QLatin1String(command));
+        Q_ASSERT(action != nullptr);
+        auto *button = new QToolButton(m_paneBar);
+        button->setToolTip(action->text().remove(QLatin1Char('&')));
+        button->setFixedSize(PaneBarButtonSize, PaneBarButtonSize);
+        button->setIconSize(QSize(PaneBarIconSize, PaneBarIconSize));
+        button->setAutoRaise(true);
+        // Clicking leaves the keyboard focus in the panel.
+        button->setFocusPolicy(Qt::NoFocus);
+        connect(button, &QToolButton::clicked, action, &QAction::trigger);
+        layout->addWidget(button);
+        m_paneButtons.append({button, copy, toRight});
+    };
+    addButton("cm_CopyToRight", true, true);
+    addButton("cm_MoveToRight", false, true);
+    auto *grip = new PaneBarGrip(m_paneBar);
+    grip->setFixedSize(PaneBarButtonSize, PaneBarButtonSize / 2);
+    grip->setToolTip(tr("Drag to move the buttons along the divider"));
+    grip->onDrag = [this](int startCentreY, int dy) { dragPaneBar(startCentreY, dy); };
+    grip->barCentreY = [this] { return m_paneBar->geometry().center().y(); };
+    layout->addWidget(grip);
+    addButton("cm_CopyToLeft", true, false);
+    addButton("cm_MoveToLeft", false, false);
+    m_paneBar->adjustSize();
+    refreshPaneBarIcons();
+    // The handle moves on drags, window resizes and restored layouts alike.
+    handle->installEventFilter(this);
+    placePaneBar();
+}
+
+QPair<int, int> MainWindow::paneBarBounds()
+{
+    // The file lists both sides show, so the bar never covers a toolbar, tab row or status line.
+    QWidget *parent = m_paneBar->parentWidget();
+    int top = std::numeric_limits<int>::min();
+    int bottom = std::numeric_limits<int>::max();
+    for (PanelTabs *side : {m_left, m_right}) {
+        FilePanel *panel = side->currentPanel();
+        QWidget *list = panel != nullptr ? panel->listView() : nullptr;
+        if (list == nullptr || !list->isVisible()) {
+            continue;
+        }
+        // Follows the list as it resizes, for example when the quick filter opens.
+        list->installEventFilter(this);
+        const QPoint origin = list->mapTo(parent, QPoint(0, 0));
+        top = std::max(top, origin.y());
+        bottom = std::min(bottom, origin.y() + list->height());
+    }
+    if (top == std::numeric_limits<int>::min()) {
+        QSplitterHandle *handle = m_splitter->handle(1);
+        top = handle->mapTo(parent, QPoint(0, 0)).y();
+        bottom = top + handle->height();
+    }
+    return {top, bottom};
+}
+
+void MainWindow::placePaneBar()
+{
+    QSplitterHandle *handle = m_splitter->handle(1);
+    if (m_paneBar == nullptr || handle == nullptr) {
+        return;
+    }
+    const auto [top, bottom] = paneBarBounds();
+    const int travel = bottom - top - m_paneBar->height();
+    // Too short a range (before the first layout) just centres the bar in it.
+    const int y = travel <= 0 ? top + travel / 2 : top + qRound(m_paneBarPos * travel);
+    const int x = handle->mapTo(m_paneBar->parentWidget(), QPoint(handle->width() / 2, 0)).x();
+    m_paneBar->move(x - m_paneBar->width() / 2, y);
+    m_paneBar->raise();
+}
+
+void MainWindow::dragPaneBar(int startCentreY, int dy)
+{
+    if (m_paneBar == nullptr || m_splitter->handle(1) == nullptr) {
+        return;
+    }
+    const auto [top, bottom] = paneBarBounds();
+    const int travel = bottom - top - m_paneBar->height();
+    if (travel <= 0) {
+        return;
+    }
+    const int barTop = startCentreY + dy - m_paneBar->height() / 2;
+    m_paneBarPos = qBound(0.0, static_cast<qreal>(barTop - top) / travel, 1.0);
+    placePaneBar();
+}
+
+void MainWindow::setShowPaneBar(bool show)
+{
+    if (m_paneBar != nullptr) {
+        m_paneBar->setVisible(show);
+    }
+    m_commands->action(QStringLiteral("cm_ShowPaneBar"))->setChecked(show);
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    // Only the splitter handle and the file lists the pane bar sits beside are watched.
+    const QEvent::Type type = event->type();
+    if (type == QEvent::Move || type == QEvent::Resize || type == QEvent::Show || type == QEvent::Hide) {
+        placePaneBar();
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::refreshPaneBarIcons()
+{
+    for (const PaneBarButton &entry : std::as_const(m_paneButtons)) {
+        entry.button->setIcon(
+            transferIcon(entry.copy, entry.toRight, entry.button->palette().color(QPalette::ButtonText),
+                         entry.button->devicePixelRatioF()));
     }
 }
 
@@ -942,6 +1270,9 @@ void MainWindow::showContextMenu(FilePanel *panel, QWidget *anchor, const QPoint
         {keyed(tr("Re&name"), "cm_RenameOnly"), command("cm_RenameOnly")},
         {keyed(tr("&Delete"), "cm_Delete"), command("cm_Delete")},
         {QString(), {}},
+        {keyed(tr("Cu&t"), "cm_CutToClipboard"), command("cm_CutToClipboard")},
+        {keyed(tr("C&opy"), "cm_CopyToClipboard"), command("cm_CopyToClipboard")},
+        {QString(), {}},
         {tr("Copy &Path"), copyPaths(paths)},
     };
     // The shell resolves paths on this thread, so skip it where that could wait on the network.
@@ -1019,9 +1350,14 @@ void MainWindow::loadSettings()
     if (!split.isEmpty()) {
         (void)m_splitter->restoreState(split);
     }
+    // Back to the style's width, in case the saved state carries a wider handle from an earlier build.
+    m_splitter->setHandleWidth(-1);
+    m_paneBarPos = qBound(0.0, s.value(QStringLiteral("window/paneBarPosition"), 0.5).toDouble(), 1.0);
+    placePaneBar();
 
     setShowHidden(s.value(QStringLiteral("view/showHidden"), false).toBool());
     setShowFolderSizes(s.value(QStringLiteral("view/folderSizes"), false).toBool());
+    setShowPaneBar(s.value(QStringLiteral("view/paneBar"), true).toBool());
     setConfirmDrop(s.value(QStringLiteral("operations/confirmDrop"), true).toBool());
     setConfirmDelete(s.value(QStringLiteral("operations/confirmDelete"), true).toBool());
     m_userTools = loadUserTools(s);
@@ -1060,8 +1396,10 @@ void MainWindow::saveSettings() const
     QSettings s = settingsStore();
     s.setValue(QStringLiteral("window/geometry"), saveGeometry());
     s.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
+    s.setValue(QStringLiteral("window/paneBarPosition"), m_paneBarPos);
     s.setValue(QStringLiteral("view/showHidden"), m_showHidden);
     s.setValue(QStringLiteral("view/folderSizes"), m_showFolderSizes);
+    s.setValue(QStringLiteral("view/paneBar"), m_paneBar != nullptr && !m_paneBar->isHidden());
     s.setValue(QStringLiteral("operations/confirmDrop"), m_confirmDrop);
     s.setValue(QStringLiteral("operations/confirmDelete"), m_confirmDelete);
     saveUserTools(s, m_userTools);

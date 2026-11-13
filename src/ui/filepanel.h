@@ -68,6 +68,8 @@ public:
     // Re-applies colours after a theme switch.
     void refreshColours();
     void focusView();
+    // The file list itself, without the path bar, filter or status line.
+    QWidget *listView() const;
 
     // Folder history of this panel, newest last.
     bool canGoBack() const;

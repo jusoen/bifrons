@@ -34,6 +34,9 @@ class PanelTabs : public QTabWidget
 public:
     explicit PanelTabs(std::shared_ptr<const FileSource> source, QWidget *parent = nullptr);
 
+    // Capped in width, so a long tab title never stops the splitter moving.
+    QSize minimumSizeHint() const override;
+
     FilePanel *currentPanel() const;
     QList<FilePanel *> panels() const;
     // Restyles the selected tab for the side that has focus.

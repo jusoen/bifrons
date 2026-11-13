@@ -21,6 +21,7 @@ namespace bifrons {
 namespace {
 constexpr int DragOutMargin = 20;
 constexpr int DropMarkerWidth = 3;
+constexpr int MaxMinimumWidth = 150;
 } // namespace
 
 // Redraws one tab bar during a tab drag: the dragged tab can be taken out, and a gap opens where it
@@ -162,6 +163,7 @@ PanelTabs::PanelTabs(std::shared_ptr<const FileSource> source, QWidget *parent)
     setTabBarAutoHide(true);
     tabBar()->setFocusPolicy(Qt::NoFocus);
     tabBar()->setExpanding(false);
+    tabBar()->setElideMode(Qt::ElideRight);
     setFocusedSide(false);
 
     connect(this, &QTabWidget::currentChanged, this, [this](int) {
@@ -489,6 +491,14 @@ void PanelTabs::adoptPanel(FilePanel *panel, int index)
     connect(panel, &FilePanel::renameRequested, this, &PanelTabs::renameRequested);
     insertTab(std::clamp(index, 0, count()), panel, QString());
     updateTitle(panel);
+}
+
+QSize PanelTabs::minimumSizeHint() const
+{
+    // Qt sizes the bar to show the whole current tab. The bar scrolls instead.
+    QSize size = QTabWidget::minimumSizeHint();
+    size.setWidth(qMin(size.width(), MaxMinimumWidth));
+    return size;
 }
 
 FilePanel *PanelTabs::currentPanel() const
