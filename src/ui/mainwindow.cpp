@@ -189,17 +189,17 @@ public:
 
     std::function<void(int startCentreY, int dy)> onDrag;
     std::function<int()> barCentreY;
+    std::function<void()> onDoubleClick;
 
 protected:
     void paintEvent(QPaintEvent *) override
     {
+        // Whole-pixel squares, not antialiased circles, so the dots stay sharp.
         QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(palette().color(QPalette::Mid));
-        const QPointF c = QRectF(rect()).center();
+        const int cx = width() / 2;
+        const int cy = height() / 2;
         for (int i = -1; i <= 1; ++i) {
-            painter.drawEllipse(QPointF(c.x() + i * 4.0, c.y()), 1.2, 1.2);
+            painter.fillRect(cx - 1 + i * 4, cy - 1, 2, 2, palette().color(QPalette::Mid));
         }
     }
 
@@ -231,6 +231,14 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override
     {
         m_dragging = false;
+        event->accept();
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && onDoubleClick) {
+            onDoubleClick();
+        }
         event->accept();
     }
 
@@ -775,9 +783,13 @@ void MainWindow::createPaneBar()
     addButton("cm_MoveToRight", false, true);
     auto *grip = new PaneBarGrip(m_paneBar);
     grip->setFixedSize(PaneBarButtonSize, PaneBarButtonSize / 2);
-    grip->setToolTip(tr("Drag to move the buttons along the divider"));
+    grip->setToolTip(tr("Drag to move the buttons along the divider, double-click to centre them"));
     grip->onDrag = [this](int startCentreY, int dy) { dragPaneBar(startCentreY, dy); };
     grip->barCentreY = [this] { return m_paneBar->geometry().center().y(); };
+    grip->onDoubleClick = [this] {
+        m_paneBarPos = 0.5;
+        placePaneBar();
+    };
     layout->addWidget(grip);
     addButton("cm_CopyToLeft", true, false);
     addButton("cm_MoveToLeft", false, false);
